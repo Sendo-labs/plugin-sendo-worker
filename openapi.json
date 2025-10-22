@@ -1,0 +1,876 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Plugin Sendo Worker API",
+    "version": "1.0.0",
+    "description": "API pour gérer les analyses et les actions recommandées de l'agent Sendo. Ce plugin orchestre le workflow d'analyse, de recommandation et d'exécution d'actions pour l'agent.",
+    "contact": {
+      "name": "Sendo Team"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api/agents/{agentId}/plugins/plugin-sendo-worker",
+      "description": "Serveur local de développement",
+      "variables": {
+        "agentId": {
+          "default": "ed1a1356-d03e-05e0-a4e6-0e83d495ab6d",
+          "description": "UUID de l'agent Sendo"
+        }
+      }
+    },
+    {
+      "url": "https://mac-mini.taile4b36a.ts.net:3000/api/agents/{agentId}/plugins/plugin-sendo-worker",
+      "description": "Serveur de production",
+      "variables": {
+        "agentId": {
+          "default": "ed1a1356-d03e-05e0-a4e6-0e83d495ab6d",
+          "description": "UUID de l'agent Sendo"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Analysis",
+      "description": "Gestion des analyses de portefeuille et de marché"
+    },
+    {
+      "name": "Actions",
+      "description": "Gestion des actions recommandées et de leur exécution"
+    }
+  ],
+  "paths": {
+    "/analysis": {
+      "get": {
+        "tags": ["Analysis"],
+        "summary": "Récupérer toutes les analyses",
+        "description": "Récupère les 10 analyses les plus récentes de l'agent, triées par date de création (plus récentes en premier).",
+        "operationId": "getAnalyses",
+        "responses": {
+          "200": {
+            "description": "Liste des analyses récupérée avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "analyses": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/AnalysisResult"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Réponse réussie avec analyses",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "analyses": [
+                          {
+                            "id": "5ea061bd-821a-4d0b-926f-0d94349b01b1",
+                            "agentId": "ed1a1356-d03e-05e0-a4e6-0e83d495ab6d",
+                            "timestamp": "2025-10-19T10:20:07.151Z",
+                            "analysis": {
+                              "walletOverview": "Your wallet contains 1000 USDC and 2.5 SOL. Total value: ~$1,500 USD",
+                              "marketConditions": "SOL is trending upward (+5% in 24h). Good time for DeFi opportunities.",
+                              "riskAssessment": "Low risk. Portfolio well-balanced between stablecoins and volatile assets.",
+                              "opportunities": "Consider staking SOL for ~7% APY or providing liquidity on Raydium."
+                            },
+                            "pluginsUsed": ["plugin-wallet", "plugin-cryptoscore", "plugin-defi"],
+                            "executionTimeMs": 1234,
+                            "createdAt": "2025-10-19T10:20:07.151Z"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/analysis/{analysisId}/actions": {
+      "get": {
+        "tags": ["Actions"],
+        "summary": "Récupérer les actions d'une analyse",
+        "description": "Récupère toutes les actions recommandées pour une analyse spécifique, triées par priorité (high > medium > low) puis par confiance (décroissante).",
+        "operationId": "getAnalysisActions",
+        "parameters": [
+          {
+            "name": "analysisId",
+            "in": "path",
+            "required": true,
+            "description": "UUID de l'analyse",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "5ea061bd-821a-4d0b-926f-0d94349b01b1"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste des actions récupérée avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "actions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/RecommendedAction"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Actions pour une analyse",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "actions": [
+                          {
+                            "id": "action-615b219b",
+                            "analysisId": "5ea061bd-821a-4d0b-926f-0d94349b01b1",
+                            "actionType": "STAKE_SOL",
+                            "pluginName": "plugin-staking",
+                            "priority": "high",
+                            "reasoning": "Staking SOL will earn you ~7% APY with minimal risk. Your 2.5 SOL can generate passive income.",
+                            "confidence": 0.85,
+                            "triggerMessage": "Stake 2 SOL on Marinade Finance for liquid staking",
+                            "params": {
+                              "amount": 2,
+                              "validator": "marinade",
+                              "token": "SOL"
+                            },
+                            "estimatedImpact": "+0.14 SOL per year (~$8.4 USD)",
+                            "estimatedGas": "~0.000005 SOL ($0.0003)",
+                            "status": "pending",
+                            "result": null,
+                            "createdAt": "2025-10-19T10:20:07.156Z"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/action/{actionId}": {
+      "get": {
+        "tags": ["Actions"],
+        "summary": "Récupérer une action spécifique",
+        "description": "Récupère les détails complets d'une action recommandée par son ID.",
+        "operationId": "getAction",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "description": "ID de l'action (format: action-XXXXXXXX)",
+            "schema": {
+              "type": "string",
+              "pattern": "^action-[a-f0-9]{8}$"
+            },
+            "example": "action-615b219b"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Action récupérée avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "$ref": "#/components/schemas/RecommendedAction"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ActionNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/actions/decide": {
+      "post": {
+        "tags": ["Actions"],
+        "summary": "Traiter les décisions utilisateur",
+        "description": "Traite les décisions de l'utilisateur (accepter ou rejeter) pour une ou plusieurs actions recommandées. Les actions acceptées passent au statut 'accepted' avec horodatage, les actions rejetées passent au statut 'rejected'.",
+        "operationId": "decideActions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["decisions"],
+                "properties": {
+                  "decisions": {
+                    "type": "array",
+                    "description": "Liste des décisions à traiter",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/components/schemas/ActionDecision"
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "acceptOne": {
+                  "summary": "Accepter une action",
+                  "value": {
+                    "decisions": [
+                      {
+                        "actionId": "action-615b219b",
+                        "decision": "accept"
+                      }
+                    ]
+                  }
+                },
+                "multiple": {
+                  "summary": "Décisions multiples",
+                  "value": {
+                    "decisions": [
+                      {
+                        "actionId": "action-615b219b",
+                        "decision": "accept"
+                      },
+                      {
+                        "actionId": "action-4135d442",
+                        "decision": "reject"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Décisions traitées avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "processed": {
+                          "type": "integer",
+                          "description": "Nombre de décisions traitées",
+                          "example": 2
+                        },
+                        "accepted": {
+                          "type": "array",
+                          "description": "Actions acceptées",
+                          "items": {
+                            "$ref": "#/components/schemas/RecommendedAction"
+                          }
+                        },
+                        "rejected": {
+                          "type": "array",
+                          "description": "Actions rejetées",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "actionId": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": ["rejected"]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "success": {
+                    "summary": "Décisions traitées",
+                    "value": {
+                      "success": true,
+                      "data": {
+                        "processed": 2,
+                        "accepted": [
+                          {
+                            "id": "action-615b219b",
+                            "analysisId": "5ea061bd-821a-4d0b-926f-0d94349b01b1",
+                            "actionType": "STAKE_SOL",
+                            "status": "accepted",
+                            "decidedAt": "2025-10-19T11:30:00.000Z"
+                          }
+                        ],
+                        "rejected": [
+                          {
+                            "actionId": "action-4135d442",
+                            "status": "rejected"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/action/{actionId}/result": {
+      "patch": {
+        "tags": ["Actions"],
+        "summary": "Mettre à jour le résultat d'une action",
+        "description": "Met à jour le statut et le résultat d'une action après son exécution. Utilisé pour tracer le cycle de vie complet d'une action (executing -> completed/failed).",
+        "operationId": "updateActionResult",
+        "parameters": [
+          {
+            "name": "actionId",
+            "in": "path",
+            "required": true,
+            "description": "ID de l'action à mettre à jour",
+            "schema": {
+              "type": "string",
+              "pattern": "^action-[a-f0-9]{8}$"
+            },
+            "example": "action-615b219b"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionResultUpdate"
+              },
+              "examples": {
+                "completed": {
+                  "summary": "Action réussie",
+                  "value": {
+                    "status": "completed",
+                    "result": {
+                      "text": "Successfully staked 2 SOL on Marinade Finance",
+                      "data": {
+                        "transactionId": "5KqZ...",
+                        "stakedAmount": 2,
+                        "mSOLReceived": 1.98,
+                        "timestamp": "2025-10-19T11:45:00.000Z"
+                      },
+                      "timestamp": "2025-10-19T11:45:00.000Z"
+                    }
+                  }
+                },
+                "failed": {
+                  "summary": "Action échouée",
+                  "value": {
+                    "status": "failed",
+                    "error": "Insufficient SOL balance. Required: 2 SOL, Available: 1.5 SOL"
+                  }
+                },
+                "executing": {
+                  "summary": "Action en cours",
+                  "value": {
+                    "status": "executing"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Résultat mis à jour avec succès",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "actionId": {
+                          "type": "string",
+                          "example": "action-615b219b"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["executing", "completed", "failed"],
+                          "example": "completed"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisResult": {
+        "type": "object",
+        "description": "Résultat d'une analyse de portefeuille et de marché",
+        "required": ["id", "agentId", "timestamp", "analysis", "pluginsUsed", "executionTimeMs", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID unique de l'analyse",
+            "example": "5ea061bd-821a-4d0b-926f-0d94349b01b1"
+          },
+          "agentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID de l'agent qui a effectué l'analyse",
+            "example": "ed1a1356-d03e-05e0-a4e6-0e83d495ab6d"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Horodatage de l'analyse",
+            "example": "2025-10-19T10:20:07.151Z"
+          },
+          "analysis": {
+            "type": "object",
+            "description": "Contenu de l'analyse",
+            "required": ["walletOverview", "marketConditions", "riskAssessment", "opportunities"],
+            "properties": {
+              "walletOverview": {
+                "type": "string",
+                "description": "Vue d'ensemble du portefeuille",
+                "example": "Your wallet contains 1000 USDC and 2.5 SOL. Total value: ~$1,500 USD"
+              },
+              "marketConditions": {
+                "type": "string",
+                "description": "Conditions actuelles du marché",
+                "example": "SOL is trending upward (+5% in 24h). Good time for DeFi opportunities."
+              },
+              "riskAssessment": {
+                "type": "string",
+                "description": "Évaluation du risque",
+                "example": "Low risk. Portfolio well-balanced between stablecoins and volatile assets."
+              },
+              "opportunities": {
+                "type": "string",
+                "description": "Opportunités identifiées",
+                "example": "Consider staking SOL for ~7% APY or providing liquidity on Raydium."
+              }
+            }
+          },
+          "pluginsUsed": {
+            "type": "array",
+            "description": "Liste des plugins utilisés pour l'analyse",
+            "items": {
+              "type": "string"
+            },
+            "example": ["plugin-wallet", "plugin-cryptoscore", "plugin-defi"]
+          },
+          "executionTimeMs": {
+            "type": "integer",
+            "description": "Temps d'exécution de l'analyse en millisecondes",
+            "example": 1234
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date de création de l'analyse",
+            "example": "2025-10-19T10:20:07.151Z"
+          }
+        }
+      },
+      "RecommendedAction": {
+        "type": "object",
+        "description": "Action recommandée suite à une analyse",
+        "required": ["id", "analysisId", "actionType", "pluginName", "priority", "reasoning", "confidence", "triggerMessage", "status", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^action-[a-f0-9]{8}$",
+            "description": "ID unique de l'action",
+            "example": "action-615b219b"
+          },
+          "analysisId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID de l'analyse source",
+            "example": "5ea061bd-821a-4d0b-926f-0d94349b01b1"
+          },
+          "actionType": {
+            "type": "string",
+            "description": "Type d'action recommandée",
+            "enum": ["STAKE_SOL", "SWAP_TOKEN", "PROVIDE_LIQUIDITY", "DCA_BUY", "SET_LIMIT_ORDER", "DIVERSIFY"],
+            "example": "STAKE_SOL"
+          },
+          "pluginName": {
+            "type": "string",
+            "description": "Plugin qui exécutera l'action",
+            "example": "plugin-staking"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Niveau de priorité de l'action",
+            "example": "high"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Justification de la recommandation",
+            "example": "Staking SOL will earn you ~7% APY with minimal risk. Your 2.5 SOL can generate passive income."
+          },
+          "confidence": {
+            "type": "number",
+            "format": "float",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Niveau de confiance dans la recommandation (0-1)",
+            "example": 0.85
+          },
+          "triggerMessage": {
+            "type": "string",
+            "description": "Message à afficher pour déclencher l'action",
+            "example": "Stake 2 SOL on Marinade Finance for liquid staking"
+          },
+          "params": {
+            "type": "object",
+            "description": "Paramètres spécifiques à l'action",
+            "additionalProperties": true,
+            "example": {
+              "amount": 2,
+              "validator": "marinade",
+              "token": "SOL"
+            }
+          },
+          "estimatedImpact": {
+            "type": "string",
+            "nullable": true,
+            "description": "Impact estimé de l'action",
+            "example": "+0.14 SOL per year (~$8.4 USD)"
+          },
+          "estimatedGas": {
+            "type": "string",
+            "nullable": true,
+            "description": "Frais de gas estimés",
+            "example": "~0.000005 SOL ($0.0003)"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "accepted", "rejected", "executing", "completed", "failed"],
+            "description": "Statut actuel de l'action",
+            "example": "pending"
+          },
+          "decidedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Date de la décision utilisateur",
+            "example": "2025-10-19T11:30:00.000Z"
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Date d'exécution de l'action",
+            "example": "2025-10-19T11:45:00.000Z"
+          },
+          "result": {
+            "type": "object",
+            "nullable": true,
+            "description": "Résultat de l'exécution",
+            "properties": {
+              "text": {
+                "type": "string",
+                "example": "Successfully staked 2 SOL on Marinade Finance"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": true,
+                "example": {
+                  "transactionId": "5KqZ...",
+                  "stakedAmount": 2,
+                  "mSOLReceived": 1.98
+                }
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "example": "2025-10-19T11:45:00.000Z"
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Message d'erreur en cas d'échec",
+            "example": "Insufficient SOL balance"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Date de création de la recommandation",
+            "example": "2025-10-19T10:20:07.156Z"
+          }
+        }
+      },
+      "ActionDecision": {
+        "type": "object",
+        "description": "Décision utilisateur sur une action",
+        "required": ["actionId", "decision"],
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "pattern": "^action-[a-f0-9]{8}$",
+            "description": "ID de l'action",
+            "example": "action-615b219b"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["accept", "reject"],
+            "description": "Décision de l'utilisateur",
+            "example": "accept"
+          }
+        }
+      },
+      "ActionResultUpdate": {
+        "type": "object",
+        "description": "Mise à jour du résultat d'une action",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["executing", "completed", "failed"],
+            "description": "Nouveau statut de l'action",
+            "example": "completed"
+          },
+          "result": {
+            "type": "object",
+            "nullable": true,
+            "description": "Résultat de l'exécution (pour status=completed)",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Description textuelle du résultat"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Données structurées du résultat"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Horodatage du résultat"
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Message d'erreur (pour status=failed)",
+            "example": "Insufficient balance"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Code d'erreur"
+              },
+              "message": {
+                "type": "string",
+                "description": "Message d'erreur"
+              },
+              "details": {
+                "type": "string",
+                "description": "Détails supplémentaires (optionnel)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ServiceError": {
+        "description": "Erreur interne du service",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "serviceNotFound": {
+                "summary": "Service non trouvé",
+                "value": {
+                  "success": false,
+                  "error": {
+                    "code": "SERVICE_NOT_FOUND",
+                    "message": "SendoWorkerService not found"
+                  }
+                }
+              },
+              "analysisError": {
+                "summary": "Erreur lors de la récupération",
+                "value": {
+                  "success": false,
+                  "error": {
+                    "code": "ANALYSIS_ERROR",
+                    "message": "Failed to get analyses",
+                    "details": "Database connection timeout"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ActionNotFound": {
+        "description": "Action non trouvée",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "success": false,
+              "error": {
+                "code": "ACTION_NOT_FOUND",
+                "message": "Action not found"
+              }
+            }
+          }
+        }
+      },
+      "InvalidRequest": {
+        "description": "Requête invalide",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "missingParameter": {
+                "summary": "Paramètre manquant",
+                "value": {
+                  "success": false,
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "analysisId is required"
+                  }
+                }
+              },
+              "invalidDecision": {
+                "summary": "Décision invalide",
+                "value": {
+                  "success": false,
+                  "error": {
+                    "code": "INVALID_DECISION",
+                    "message": "Invalid decision for action-615b219b: must be \"accept\" or \"reject\""
+                  }
+                }
+              },
+              "emptyArray": {
+                "summary": "Tableau vide",
+                "value": {
+                  "success": false,
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "decisions must be a non-empty array"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
