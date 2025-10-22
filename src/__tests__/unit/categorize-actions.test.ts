@@ -8,21 +8,12 @@ import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { SendoWorkerService } from '../../services/sendoWorkerService.js';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
 import type { IAgentRuntime } from '@elizaos/core';
-import { ModelType } from '@elizaos/core';
-import * as fs from 'fs';
-import * as path from 'path';
 
 describe('SendoWorkerService - categorizeActions', () => {
   let runtime: IAgentRuntime;
   let service: SendoWorkerService;
 
   beforeAll(async () => {
-    // Create .eliza directory for database
-    const elizaDir = path.join(process.cwd(), '.eliza', '.elizadb');
-    if (!fs.existsSync(elizaDir)) {
-      fs.mkdirSync(elizaDir, { recursive: true });
-    }
-
     // Create REAL runtime with test actions
     runtime = await createTestRuntime({
       testId: 'categorize-test',
@@ -79,12 +70,6 @@ describe('SendoWorkerService - categorizeActions', () => {
 
   afterAll(async () => {
     await cleanupTestRuntime(runtime);
-
-    // Cleanup .eliza directory
-    const elizaDir = path.join(process.cwd(), '.eliza');
-    if (fs.existsSync(elizaDir)) {
-      fs.rmSync(elizaDir, { recursive: true, force: true });
-    }
   });
 
   it('should categorize all available actions', async () => {

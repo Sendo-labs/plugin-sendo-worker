@@ -42,6 +42,36 @@ async function getAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): P
 }
 
 /**
+ * GET /analysis/:analysisId
+ * Get a specific analysis by ID
+ */
+async function getAnalysisByIdHandler(req: any, res: any, runtime: IAgentRuntime): Promise<void> {
+  const { analysisId } = req.params;
+  const workerService = runtime.getService<SendoWorkerService>('sendo_worker');
+
+  if (!workerService) {
+    return sendError(res, 500, 'SERVICE_NOT_FOUND', 'SendoWorkerService not found');
+  }
+
+  if (!analysisId) {
+    return sendError(res, 400, 'INVALID_REQUEST', 'analysisId is required');
+  }
+
+  try {
+    const analysis = await workerService.getAnalysisResult(analysisId);
+
+    if (!analysis) {
+      return sendError(res, 404, 'NOT_FOUND', `Analysis ${analysisId} not found`);
+    }
+
+    sendSuccess(res, { analysis });
+  } catch (error: any) {
+    logger.error('[Route] Failed to get analysis:', error);
+    sendError(res, 500, 'ANALYSIS_ERROR', 'Failed to get analysis', error.message);
+  }
+}
+
+/**
  * GET /analysis/:analysisId/actions
  * Get all actions for a specific analysis
  */
@@ -172,6 +202,11 @@ export const sendoWorkerRoutes: Route[] = [
     type: 'GET',
     path: '/analysis',
     handler: getAnalysisHandler,
+  },
+  {
+    type: 'GET',
+    path: '/analysis/:analysisId',
+    handler: getAnalysisByIdHandler,
   },
   {
     type: 'POST',

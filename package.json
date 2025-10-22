@@ -52,6 +52,9 @@
     "format:check": "prettier --check ./src",
     "check": "biome check --write .",
     "test": "elizaos test",
+    "test:unit": "bun test src/__tests__/unit/categorize-actions.test.ts && bun test src/__tests__/unit/execute-analysis-actions.test.ts",
+    "test:integration": "bun test src/__tests__/integration/run-analysis.test.ts",
+    "test:all": "bun run test:unit && bun run test:integration",
     "publish": "elizaos plugin publish",
     "seed": "bun run scripts/seed-data.ts",
     "db:clean": "bun run scripts/clean-data.ts"

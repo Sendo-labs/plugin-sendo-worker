@@ -8,8 +8,6 @@ import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { SendoWorkerService } from '../../services/sendoWorkerService.js';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
 import type { IAgentRuntime, Action } from '@elizaos/core';
-import * as fs from 'fs';
-import * as path from 'path';
 
 describe('SendoWorkerService - executeAnalysisActions', () => {
   let runtime: IAgentRuntime;
@@ -17,13 +15,7 @@ describe('SendoWorkerService - executeAnalysisActions', () => {
   let dataActions: Action[];
 
   beforeAll(async () => {
-    // Create .eliza directory for database
-    const elizaDir = path.join(process.cwd(), '.eliza', '.elizadb');
-    if (!fs.existsSync(elizaDir)) {
-      fs.mkdirSync(elizaDir, { recursive: true });
-    }
-
-    // Create REAL runtime with DATA actions only
+    // Create REAL runtime with DATA actions only and isolated DB
     runtime = await createTestRuntime({
       testId: 'execute-analysis-test',
       withDataActions: true, // 3 DATA actions
@@ -84,12 +76,6 @@ describe('SendoWorkerService - executeAnalysisActions', () => {
 
   afterAll(async () => {
     await cleanupTestRuntime(runtime);
-
-    // Cleanup .eliza directory
-    const elizaDir = path.join(process.cwd(), '.eliza');
-    if (fs.existsSync(elizaDir)) {
-      fs.rmSync(elizaDir, { recursive: true, force: true });
-    }
   });
 
   it('should execute all DATA actions in parallel', async () => {

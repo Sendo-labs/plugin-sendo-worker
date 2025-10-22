@@ -40,16 +40,23 @@ export async function createTestRuntime(config: TestRuntimeConfig = {}): Promise
     settings: {
       secrets: {},
       voice: { model: 'en_US-male-medium' },
+      PGLITE_DATA_DIR: '.eliza-test', // Shared test DB (cleaned between runs)
     },
   };
 
   // Import SQL plugin for database adapter
   const sqlPlugin = await import('@elizaos/plugin-sql');
 
-  // Create REAL AgentRuntime with SQL plugin
+  // Import sendo-worker plugin for schema
+  const sendoWorkerPlugin = await import('../../index');
+
+  // Create REAL AgentRuntime with SQL plugin and sendo-worker plugin
   const runtime = new AgentRuntime({
     character,
-    plugins: [sqlPlugin.default], // Required for database adapter
+    plugins: [
+      sqlPlugin.default, // Required for database adapter
+      sendoWorkerPlugin.default, // Required for schema tables
+    ],
   });
 
   // Register test actions (real actions with predictable data)
@@ -378,6 +385,15 @@ export async function cleanupTestRuntime(runtime: IAgentRuntime): Promise<void> 
   const adapter = (runtime as any).adapter;
   if (adapter && typeof adapter.close === 'function') {
     await adapter.close();
+  }
+
+  // Cleanup shared test DB directory
+  const fs = await import('fs');
+  const path = await import('path');
+  const testDbPath = path.join(process.cwd(), '.eliza-test');
+  if (fs.existsSync(testDbPath)) {
+    fs.rmSync(testDbPath, { recursive: true, force: true });
+    logger.info('[TestRuntime] Removed test DB directory');
   }
 
   logger.info('[TestRuntime] Cleanup complete');

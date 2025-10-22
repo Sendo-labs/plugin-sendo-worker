@@ -528,7 +528,10 @@ export class SendoWorkerService extends Service {
    * @param shouldPersist - Whether to save results to database (default: true)
    * @returns Complete analysis result with recommendations
    */
-  async runAnalysis(agentId: UUID, shouldPersist: boolean = true): Promise<AnalysisResult> {
+  async runAnalysis(
+    agentId: UUID,
+    shouldPersist: boolean = true
+  ): Promise<AnalysisResult & { recommendedActions: RecommendedAction[] }> {
     const startTime = Date.now();
     logger.info(`[SendoWorkerService] Starting analysis for agent ${agentId}...`);
 
@@ -606,7 +609,10 @@ export class SendoWorkerService extends Service {
         `[SendoWorkerService] ✅ Analysis completed in ${executionTimeMs}ms with ${recommendations.length} recommendations`
       );
 
-      return result;
+      return {
+        ...result,
+        recommendedActions: recommendations,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`[SendoWorkerService] ❌ Analysis failed: ${errorMessage}`);
@@ -637,23 +643,28 @@ export class SendoWorkerService extends Service {
 
     // 2. Insert recommended actions
     if (recommendations.length > 0) {
-      await db.insert(recommendedActions).values(
-        recommendations.map((rec) => ({
-          id: rec.id,
-          analysisId: analysis.id,
-          actionType: rec.actionType,
-          pluginName: rec.pluginName,
-          priority: rec.priority,
-          reasoning: rec.reasoning,
-          confidence: rec.confidence.toString(),
-          triggerMessage: rec.triggerMessage,
-          params: rec.params ?? null,
-          estimatedImpact: rec.estimatedImpact ?? null,
-          estimatedGas: rec.estimatedGas ?? null,
-          status: rec.status,
-          createdAt: new Date(rec.createdAt),
-        }))
-      );
+      // Filter out any null/undefined recommendations
+      const validRecs = recommendations.filter((rec) => rec != null && rec.confidence != null);
+
+      if (validRecs.length > 0) {
+        await db.insert(recommendedActions).values(
+          validRecs.map((rec) => ({
+            id: rec.id,
+            analysisId: analysis.id,
+            actionType: rec.actionType,
+            pluginName: rec.pluginName,
+            priority: rec.priority,
+            reasoning: rec.reasoning,
+            confidence: rec.confidence.toString(),
+            triggerMessage: rec.triggerMessage,
+            params: rec.params ?? null,
+            estimatedImpact: rec.estimatedImpact ?? null,
+            estimatedGas: rec.estimatedGas ?? null,
+            status: rec.status,
+            createdAt: new Date(rec.createdAt),
+          }))
+        );
+      }
     }
 
     logger.info(
@@ -912,11 +923,69 @@ export class SendoWorkerService extends Service {
   // ============================================
 
   /**
+   * Get a single analysis by ID
+   * @param analysisId - The analysis UUID
+   * @returns The analysis result, or null if not found
+   */
+  async getAnalysisResult(
+    analysisId: UUID
+  ): Promise<(AnalysisResult & { recommendedActions: RecommendedAction[] }) | null> {
+    logger.info(`[SendoWorkerService] Getting analysis ${analysisId}`);
+
+    const db = this.getDb();
+    const results = await db
+      .select()
+      .from(analysisResults)
+      .where(eq(analysisResults.id, analysisId))
+      .limit(1);
+
+    if (results.length === 0) {
+      return null;
+    }
+
+    const row = results[0];
+
+    // Also fetch the recommended actions for this analysis
+    const actions = await db
+      .select()
+      .from(recommendedActions)
+      .where(eq(recommendedActions.analysisId, analysisId));
+
+    const recommendedActionsList: RecommendedAction[] = actions.map((action: any) => ({
+      id: action.id as UUID,
+      analysisId: action.analysisId as UUID,
+      actionType: action.actionType,
+      pluginName: action.pluginName,
+      priority: action.priority as 'high' | 'medium' | 'low',
+      reasoning: action.reasoning,
+      confidence: parseFloat(action.confidence),
+      triggerMessage: action.triggerMessage,
+      params: action.params as Record<string, any>,
+      estimatedImpact: action.estimatedImpact,
+      estimatedGas: action.estimatedGas ?? undefined,
+      status: action.status as 'pending' | 'executed' | 'failed',
+      executedAt: action.executedAt?.toISOString() ?? undefined,
+      createdAt: action.createdAt?.toISOString() ?? new Date().toISOString(),
+    }));
+
+    return {
+      id: row.id as UUID,
+      agentId: row.agentId as UUID,
+      timestamp: row.createdAt?.toISOString() ?? new Date().toISOString(),
+      analysis: row.analysis as any,
+      pluginsUsed: row.pluginsUsed ?? [],
+      executionTimeMs: row.executionTimeMs ?? 0,
+      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+      recommendedActions: recommendedActionsList,
+    };
+  }
+
+  /**
    * Get all analyses for an agent (limited to 10 most recent)
    * @param agentId - The agent UUID
    * @returns Array of analysis results
    */
-  async getAnalysesByAgentId(agentId: UUID): Promise<AnalysisResult[]> {
+  async getAnalysesByAgentId(agentId: UUID, limit: number = 10): Promise<AnalysisResult[]> {
     logger.info(`[SendoWorkerService] Getting analyses for agent ${agentId}`);
 
     const db = this.getDb();
@@ -925,7 +994,7 @@ export class SendoWorkerService extends Service {
       .from(analysisResults)
       .where(eq(analysisResults.agentId, agentId))
       .orderBy(desc(analysisResults.createdAt))
-      .limit(10);
+      .limit(limit);
 
     return results.map((row: any) => ({
       id: row.id as UUID,
