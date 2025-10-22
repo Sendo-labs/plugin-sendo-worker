@@ -11,7 +11,6 @@ export type {
 export type {
   RecommendedAction,
   ActionDecision,
-  ActionResultUpdate,
 } from './actions.js';
 
 // Analysis generation workflow
@@ -38,3 +37,14 @@ export type {
   GenerateRecommendationResponse,
   GenerateAnalysisResponse,
 } from './schemas.js';
+
+// API types
+export type {
+  GetAnalysesData,
+  GetAnalysisByIdData,
+  RunAnalysisData,
+  GetAnalysisActionsData,
+  GetActionData,
+  DecideActionsRequestBody,
+  DecideActionsData,
+} from './api.js';

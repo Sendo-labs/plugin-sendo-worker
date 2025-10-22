@@ -8,8 +8,25 @@ import {
   jsonb,
   timestamp,
   index,
+  smallint,
 } from 'drizzle-orm/pg-core';
 import { analysisResults } from './analysis-results';
+
+/**
+ * Priority levels as numeric values for proper sorting
+ * 3 = high, 2 = medium, 1 = low
+ */
+export const PRIORITY_VALUES = {
+  high: 3,
+  medium: 2,
+  low: 1,
+} as const;
+
+export const PRIORITY_NAMES = {
+  3: 'high',
+  2: 'medium',
+  1: 'low',
+} as const;
 
 /**
  * Recommended actions storage table
@@ -28,7 +45,7 @@ export const recommendedActions = pgTable(
     pluginName: varchar('plugin_name', { length: 255 }).notNull(),
 
     // Priority and confidence
-    priority: varchar('priority', { length: 50 }).notNull(), // 'high' | 'medium' | 'low'
+    priority: smallint('priority').notNull(), // 3=high, 2=medium, 1=low
     reasoning: text('reasoning').notNull(),
     confidence: decimal('confidence', { precision: 3, scale: 2 }).notNull(),
 

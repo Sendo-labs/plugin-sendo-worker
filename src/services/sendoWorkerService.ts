@@ -26,7 +26,7 @@ import {
   generateAnalysisSchema,
   generateRecommendationSchema,
 } from '../types/index.js';
-import { analysisResults, recommendedActions } from '../schemas/index.js';
+import { analysisResults, recommendedActions, PRIORITY_VALUES, PRIORITY_NAMES } from '../schemas/index.js';
 import {
   actionCategorizationPrompt,
   generateDataActionTriggerPrompt,
@@ -653,7 +653,7 @@ export class SendoWorkerService extends Service {
             analysisId: analysis.id,
             actionType: rec.actionType,
             pluginName: rec.pluginName,
-            priority: rec.priority,
+            priority: PRIORITY_VALUES[rec.priority],
             reasoning: rec.reasoning,
             confidence: rec.confidence.toString(),
             triggerMessage: rec.triggerMessage,
@@ -956,7 +956,7 @@ export class SendoWorkerService extends Service {
       analysisId: action.analysisId as UUID,
       actionType: action.actionType,
       pluginName: action.pluginName,
-      priority: action.priority as 'high' | 'medium' | 'low',
+      priority: PRIORITY_NAMES[action.priority as keyof typeof PRIORITY_NAMES] || 'medium',
       reasoning: action.reasoning,
       confidence: parseFloat(action.confidence),
       triggerMessage: action.triggerMessage,
@@ -1027,7 +1027,7 @@ export class SendoWorkerService extends Service {
       analysisId: row.analysisId as UUID,
       actionType: row.actionType,
       pluginName: row.pluginName,
-      priority: row.priority as 'high' | 'medium' | 'low',
+      priority: PRIORITY_NAMES[row.priority as keyof typeof PRIORITY_NAMES] || 'medium',
       reasoning: row.reasoning,
       confidence: parseFloat(row.confidence ?? '0'),
       triggerMessage: row.triggerMessage,
@@ -1069,7 +1069,7 @@ export class SendoWorkerService extends Service {
       analysisId: row.analysisId as UUID,
       actionType: row.actionType,
       pluginName: row.pluginName,
-      priority: row.priority as 'high' | 'medium' | 'low',
+      priority: PRIORITY_NAMES[row.priority as keyof typeof PRIORITY_NAMES] || 'medium',
       reasoning: row.reasoning,
       confidence: parseFloat(row.confidence ?? '0'),
       triggerMessage: row.triggerMessage,

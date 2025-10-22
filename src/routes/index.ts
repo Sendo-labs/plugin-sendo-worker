@@ -21,8 +21,10 @@ function sendError(res: any, status: number, code: string, message: string, deta
 // ============================================
 
 /**
- * GET /worker/analysis
+ * GET /worker/analysis?limit=10
  * Get all analyses for the current agent
+ * Query params:
+ *   - limit: number of analyses to return (default: 10, max: 100)
  */
 async function getAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): Promise<void> {
   const agentId = runtime.agentId;
@@ -32,9 +34,21 @@ async function getAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): P
     return sendError(res, 500, 'SERVICE_NOT_FOUND', 'SendoWorkerService not found');
   }
 
+  // Parse limit from query params
+  const limitParam = req.query?.limit;
+  let limit = 10; // default
+
+  if (limitParam) {
+    const parsedLimit = parseInt(limitParam, 10);
+    if (isNaN(parsedLimit) || parsedLimit < 1) {
+      return sendError(res, 400, 'INVALID_LIMIT', 'limit must be a positive integer');
+    }
+    limit = Math.min(parsedLimit, 100); // max 100
+  }
+
   try {
-    const analyses = await workerService.getAnalysesByAgentId(agentId);
-    sendSuccess(res, { analyses });
+    const analyses = await workerService.getAnalysesByAgentId(agentId, limit);
+    sendSuccess(res, { analyses, count: analyses.length, limit });
   } catch (error: any) {
     logger.error('[Route] Failed to get analyses:', error);
     sendError(res, 500, 'ANALYSIS_ERROR', 'Failed to get analyses', error.message);

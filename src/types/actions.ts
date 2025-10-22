@@ -49,16 +49,3 @@ export interface ActionDecision {
   actionId: string;
   decision: 'accept' | 'reject';
 }
-
-/**
- * Result data for updating an action after execution
- */
-export interface ActionResultUpdate {
-  status: 'executing' | 'completed' | 'failed';
-  result?: {
-    text: string;
-    data?: any;
-    timestamp: string;
-  };
-  error?: string;
-}
