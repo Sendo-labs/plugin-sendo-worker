@@ -280,7 +280,7 @@ describe('API Routes - Integration Tests', () => {
   });
 
   describe('Action Error Handling - errorType field', () => {
-    it('should set errorType to execution_error when action is not found', async () => {
+    it('should set errorType to initialization when action is not found', async () => {
       const db = (runtime as any).db;
       const actionId = `test-not-found-${Date.now()}`;
 
@@ -305,23 +305,23 @@ describe('API Routes - Integration Tests', () => {
       // Wait for async execution to complete
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Check the action - should be failed with execution_error
+      // Check the action - should be failed with initialization
       const action = await service.getActionById(actionId);
       expect(action.status).toBe('failed');
       expect(action.error).toBeDefined();
       expect(action.error).toContain('not found');
-      expect(action.errorType).toBe('execution_error');
+      expect(action.errorType).toBe('initialization');
       expect(action.executedAt).toBeDefined();
     });
 
-    it('should set errorType to business_error when action returns error result', async () => {
+    it('should set errorType to execution when action returns error result', async () => {
       const db = (runtime as any).db;
-      const actionId = `test-business-error-${Date.now()}`;
+      const actionId = `test-execution-failed-${Date.now()}`;
 
-      // Mock an action that fails with business error
+      // Mock an action that executes but fails
       const failingAction = {
-        name: 'FAILING_BUSINESS_ACTION',
-        description: 'An action that fails with business error',
+        name: 'FAILING_ACTION',
+        description: 'An action that executes but fails',
         examples: [],
         similes: ['FAIL'],
         validate: async () => true,
@@ -337,12 +337,12 @@ describe('API Routes - Integration Tests', () => {
       await db.insert(recommendedActions).values({
         id: actionId,
         analysisId: testAnalysisId,
-        actionType: 'FAILING_BUSINESS_ACTION',
+        actionType: 'FAILING_ACTION',
         pluginName: 'test-plugin',
         priority: 3,
-        reasoning: 'Testing business error',
+        reasoning: 'Testing execution failure',
         confidence: '0.9',
-        triggerMessage: 'Execute action with business error',
+        triggerMessage: 'Execute action that fails',
         params: {},
         status: 'pending',
         createdAt: new Date(),
@@ -354,11 +354,11 @@ describe('API Routes - Integration Tests', () => {
       const action = await service.getActionById(actionId);
       expect(action.status).toBe('failed');
       expect(action.error).toContain('Insufficient');
-      expect(action.errorType).toBe('business_error');
+      expect(action.errorType).toBe('execution');
       expect(action.executedAt).toBeDefined();
     });
 
-    it('should set errorType to business_error when action returns no result', async () => {
+    it('should set errorType to execution when action returns no result', async () => {
       const db = (runtime as any).db;
       const actionId = `test-no-result-${Date.now()}`;
 
@@ -394,7 +394,7 @@ describe('API Routes - Integration Tests', () => {
       const action = await service.getActionById(actionId);
       expect(action.status).toBe('failed');
       expect(action.error).toContain('No result');
-      expect(action.errorType).toBe('business_error');
+      expect(action.errorType).toBe('execution');
     });
 
     it('should not include errorType field for pending actions', async () => {
@@ -419,6 +419,34 @@ describe('API Routes - Integration Tests', () => {
       expect(action.status).toBe('pending');
       expect(action.error).toBeUndefined();
       expect(action.errorType).toBeUndefined();
+    });
+
+    it('should not include errorType field for rejected actions', async () => {
+      const db = (runtime as any).db;
+      const actionId = `test-rejected-${Date.now()}`;
+
+      await db.insert(recommendedActions).values({
+        id: actionId,
+        analysisId: testAnalysisId,
+        actionType: 'SOME_REJECTED_ACTION',
+        pluginName: 'test-plugin',
+        priority: 1,
+        reasoning: 'Testing rejected action has no errorType',
+        confidence: '0.6',
+        triggerMessage: 'Rejected action',
+        params: {},
+        status: 'pending',
+        createdAt: new Date(),
+      });
+
+      // Reject the action
+      await service.processDecisions([{ actionId, decision: 'reject' }]);
+
+      const action = await service.getActionById(actionId);
+      expect(action.status).toBe('rejected');
+      expect(action.error).toBeUndefined();
+      expect(action.errorType).toBeUndefined();
+      expect(action.decidedAt).toBeDefined();
     });
   });
 

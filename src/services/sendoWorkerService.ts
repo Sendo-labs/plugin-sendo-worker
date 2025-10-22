@@ -19,14 +19,14 @@ import type {
   DataActionType,
   AnalysisActionResult,
   ProviderDataResult,
-} from '../types/index.js';
+} from '../types/index';
 import {
   actionCategorizationSchema,
   selectRelevantActionsSchema,
   generateAnalysisSchema,
   generateRecommendationSchema,
-} from '../types/index.js';
-import { analysisResults, recommendedActions, PRIORITY_VALUES, PRIORITY_NAMES } from '../schemas/index.js';
+} from '../types/index';
+import { analysisResults, recommendedActions, PRIORITY_VALUES, PRIORITY_NAMES } from '../schemas/index';
 import {
   actionCategorizationPrompt,
   generateDataActionTriggerPrompt,
@@ -34,8 +34,8 @@ import {
   generateAnalysisPrompt,
   selectRelevantActionsPrompt,
   generateRecommendationPrompt,
-} from '../templates/index.js';
-import { getActionResultFromCache, extractErrorMessage } from '../utils/actionResult.js';
+} from '../templates/index';
+import { getActionResultFromCache, extractErrorMessage } from '../utils/actionResult';
 
 export class SendoWorkerService extends Service {
   static serviceType = 'sendo_worker';
@@ -808,9 +808,7 @@ export class SendoWorkerService extends Service {
           );
 
           if (!action) {
-            const error = new Error(`Action ${recommendedAction.actionType} not found in runtime`);
-            (error as any).isExecutionError = true;
-            throw error;
+            throw new Error(`Action ${recommendedAction.actionType} not found in runtime`);
           }
 
           // 3. Create memory with unique ID to trigger the action
@@ -888,14 +886,14 @@ export class SendoWorkerService extends Service {
 
               logger.info(`[SendoWorkerService] ✅ Action ${actionId} completed successfully`);
             } else {
-              // Action failed - business error (e.g., insufficient funds, swap failed)
+              // Action executed but failed (e.g., insufficient funds, swap failed)
               const errorMessage = extractErrorMessage(actionResult, 'Action execution failed');
               await db
                 .update(recommendedActions)
                 .set({
                   status: 'failed',
                   error: errorMessage,
-                  errorType: 'business_error',
+                  errorType: 'execution',
                   executedAt,
                 })
                 .where(eq(recommendedActions.id, actionId));
@@ -903,13 +901,13 @@ export class SendoWorkerService extends Service {
               logger.warn(`[SendoWorkerService] ⚠️ Action ${actionId} failed: ${errorMessage}`);
             }
           } else {
-            // No result - mark as failed with business error
+            // No result - mark as failed (action was executed but returned nothing)
             await db
               .update(recommendedActions)
               .set({
                 status: 'failed',
                 error: 'No result returned from action',
-                errorType: 'business_error',
+                errorType: 'execution',
                 executedAt,
               })
               .where(eq(recommendedActions.id, actionId));
@@ -918,18 +916,19 @@ export class SendoWorkerService extends Service {
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          const isExecutionError = (error as any).isExecutionError === true;
 
           logger.error(`[SendoWorkerService] ❌ Action ${actionId} failed: ${errorMessage}`);
 
           // Update database with error and errorType
+          // Exceptions here are initialization errors (action not found, room creation failed, etc.)
+          // These are infrastructure/setup problems, not execution failures
           const db = this.getDb();
           await db
             .update(recommendedActions)
             .set({
               status: 'failed',
               error: errorMessage,
-              errorType: isExecutionError ? 'execution_error' : 'business_error',
+              errorType: 'initialization',
               executedAt: new Date(),
             })
             .where(eq(recommendedActions.id, actionId));

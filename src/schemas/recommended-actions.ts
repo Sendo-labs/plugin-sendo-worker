@@ -67,7 +67,7 @@ export const recommendedActions = pgTable(
     // Result (saved by Frontend)
     result: jsonb('result'),
     error: text('error'),
-    errorType: varchar('error_type', { length: 50 }), // 'execution_error' | 'business_error'
+    errorType: varchar('error_type', { length: 50 }), // 'initialization' | 'execution'
 
     createdAt: timestamp('created_at').default(sql`now()`).notNull(),
   },

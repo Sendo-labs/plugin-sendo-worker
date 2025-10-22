@@ -38,7 +38,7 @@ export interface RecommendedAction {
     timestamp: string;
   };
   error?: string;
-  errorType?: 'execution_error' | 'business_error'; // execution_error: technical failure (action not found), business_error: action failed (e.g., insufficient funds)
+  errorType?: 'initialization' | 'execution';
 
   createdAt: string;
 }
