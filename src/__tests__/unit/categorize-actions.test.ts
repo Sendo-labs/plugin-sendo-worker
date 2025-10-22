@@ -74,7 +74,7 @@ describe('SendoWorkerService - categorizeActions', () => {
       };
       console.log('[TEST] Categorized as DATA (default):', response);
       return Promise.resolve(response);
-    });
+    }) as any;
   });
 
   afterAll(async () => {
