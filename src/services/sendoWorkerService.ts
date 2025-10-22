@@ -524,12 +524,10 @@ export class SendoWorkerService extends Service {
   /**
    * Main orchestrator method that runs the complete analysis workflow
    * @param agentId - The agent UUID
-   * @param shouldPersist - Whether to save results to database (default: true)
    * @returns Complete analysis result with recommendations
    */
   async runAnalysis(
-    agentId: UUID,
-    shouldPersist: boolean = true
+    agentId: UUID
   ): Promise<AnalysisResult & { recommendedActions: RecommendedAction[] }> {
     const startTime = Date.now();
     logger.info(`[SendoWorkerService] Starting analysis for agent ${agentId}...`);
@@ -597,12 +595,10 @@ export class SendoWorkerService extends Service {
         createdAt: new Date().toISOString(),
       };
 
-      // 7. Save to database if requested
-      if (shouldPersist) {
-        logger.info('[SendoWorkerService] Saving analysis to database...');
-        await this.saveAnalysis(result, recommendations);
-        logger.info('[SendoWorkerService] Analysis saved successfully');
-      }
+      // 7. Save to database
+      logger.info('[SendoWorkerService] Saving analysis to database...');
+      await this.saveAnalysis(result, recommendations);
+      logger.info('[SendoWorkerService] Analysis saved successfully');
 
       logger.info(
         `[SendoWorkerService] ✅ Analysis completed in ${executionTimeMs}ms with ${recommendations.length} recommendations`

@@ -201,7 +201,7 @@ describe('API Routes - Integration Tests', () => {
 
   describe('POST /analysis', () => {
     it('should run complete analysis workflow', async () => {
-      const result = await service.runAnalysis(runtime.agentId, true);
+      const result = await service.runAnalysis(runtime.agentId);
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('id');
@@ -210,7 +210,7 @@ describe('API Routes - Integration Tests', () => {
     });
 
     it('should save analysis to database', async () => {
-      const result = await service.runAnalysis(runtime.agentId, true);
+      const result = await service.runAnalysis(runtime.agentId);
       const analysisId = result.id;
 
       // Verify it was saved
@@ -220,7 +220,7 @@ describe('API Routes - Integration Tests', () => {
     });
 
     it('should return analysis with structure matching API spec', async () => {
-      const result = await service.runAnalysis(runtime.agentId, true);
+      const result = await service.runAnalysis(runtime.agentId);
 
       expect(result).toHaveProperty('id');
       expect(result).toHaveProperty('agentId');

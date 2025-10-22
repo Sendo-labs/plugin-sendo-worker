@@ -35,7 +35,7 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
   });
 
   it('should save analysis to database with all fields', async () => {
-    const result = await service.runAnalysis(runtime.agentId, true);
+    const result = await service.runAnalysis(runtime.agentId);
 
     // Verify analysis was created
     expect(result.id).toBeDefined();
@@ -53,7 +53,7 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
   });
 
   it('should save recommendations with analysis', async () => {
-    const result = await service.runAnalysis(runtime.agentId, true);
+    const result = await service.runAnalysis(runtime.agentId);
 
     // Should have recommendations
     expect(result.recommendedActions.length).toBeGreaterThan(0);
@@ -71,16 +71,6 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
     expect(savedRec.confidence).toBeGreaterThan(0);
   });
 
-  it('should skip saving if shouldPersist is false', async () => {
-    const result = await service.runAnalysis(runtime.agentId, false);
-
-    // Should return result
-    expect(result.id).toBeDefined();
-
-    // But NOT in database
-    const saved = await service.getAnalysisResult(result.id);
-    expect(saved).toBeNull();
-  });
 
   it('should handle saving with no recommendations', async () => {
     // Override to return no ACTION actions
@@ -91,7 +81,7 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
       },
     });
 
-    const result = await service.runAnalysis(runtime.agentId, true);
+    const result = await service.runAnalysis(runtime.agentId);
 
     // Should save analysis even with no recommendations
     const saved = await service.getAnalysisResult(result.id);
@@ -106,7 +96,7 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
     // This is tested indirectly - if invalid recs are saved, DB will throw
     // The fact that previous tests pass means filtering works
 
-    const result = await service.runAnalysis(runtime.agentId, true);
+    const result = await service.runAnalysis(runtime.agentId);
     const saved = await service.getAnalysisResult(result.id);
 
     // All saved recommendations should be valid

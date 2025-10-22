@@ -152,7 +152,7 @@ async function runAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): P
 
   try {
     // Run complete analysis workflow
-    const result = await workerService.runAnalysis(agentId, true);
+    const result = await workerService.runAnalysis(agentId);
 
     sendSuccess(res, {
       message: 'Analysis completed successfully',
