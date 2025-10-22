@@ -6,6 +6,8 @@ import {
   ModelType,
   type Action,
   type Memory,
+  ChannelType,
+  createUniqueUuid,
 } from '@elizaos/core';
 import { eq, desc } from 'drizzle-orm';
 import type {
@@ -267,6 +269,15 @@ export class SendoWorkerService extends Service {
       return [];
     }
 
+    // Create a stable worldId for all actions (agent + month)
+    // This allows grouping all analyses from the same agent in the same month
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const worldId = createUniqueUuid(
+      this.runtime,
+      `sendo-worker-${monthKey}`
+    );
+
     // Execute each action in parallel
     const results = await Promise.all(
       dataActions.map(async (action) => {
@@ -281,11 +292,21 @@ export class SendoWorkerService extends Service {
 
           // Create message with unique ID for stateCache retrieval
           const messageId = crypto.randomUUID() as UUID;
+
+          // Ensure room exists in database (unique room per action, shared worldId)
+          const roomId = crypto.randomUUID() as UUID;
+          await this.runtime.ensureRoomExists({
+            id: roomId,
+            source: 'sendo-worker',
+            type: ChannelType.API,
+            worldId,
+          });
+
           const memory: Memory = {
             id: messageId,
             entityId: this.runtime.agentId,
             agentId: this.runtime.agentId,
-            roomId: crypto.randomUUID() as UUID,
+            roomId,
             content: {
               text: triggerMessage.trim(),
             },
@@ -641,17 +662,72 @@ export class SendoWorkerService extends Service {
   }
 
   // ============================================
-  // EXECUTION METHODS
+  // DECISION & EXECUTION METHODS
   // ============================================
+
+  /**
+   * Process decision for one or more actions (accept/reject)
+   * - Accept: Executes the action immediately (async)
+   * - Reject: Updates status to "rejected" without execution
+   * @param decisions - Array of { actionId, decision: 'accept' | 'reject' }
+   * @returns Object with accepted and rejected actions
+   */
+  async processDecisions(
+    decisions: Array<{ actionId: string; decision: 'accept' | 'reject' }>
+  ): Promise<{
+    accepted: RecommendedAction[];
+    rejected: Array<{ actionId: string; status: string }>;
+  }> {
+    logger.info(`[SendoWorkerService] Processing ${decisions.length} decisions...`);
+
+    const accepted: RecommendedAction[] = [];
+    const rejected: Array<{ actionId: string; status: string }> = [];
+    const db = this.getDb();
+
+    for (const { actionId, decision } of decisions) {
+      try {
+        if (decision === 'accept') {
+          // Accept → Execute the action
+          const executingActions = await this.executeActions([actionId]);
+          if (executingActions.length > 0) {
+            accepted.push(executingActions[0]);
+            logger.info(`[SendoWorkerService] Action ${actionId} accepted and executing`);
+          }
+        } else if (decision === 'reject') {
+          // Reject → Just update status
+          await db
+            .update(recommendedActions)
+            .set({
+              status: 'rejected',
+              decidedAt: new Date(),
+            })
+            .where(eq(recommendedActions.id, actionId));
+
+          rejected.push({ actionId, status: 'rejected' });
+          logger.info(`[SendoWorkerService] Action ${actionId} rejected`);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`[SendoWorkerService] Failed to process decision for ${actionId}: ${errorMessage}`);
+        // Continue processing other decisions
+      }
+    }
+
+    logger.info(
+      `[SendoWorkerService] Decisions processed: ${accepted.length} accepted, ${rejected.length} rejected`
+    );
+
+    return { accepted, rejected };
+  }
 
   /**
    * Execute one or more recommended actions asynchronously
    * Changes status to "executing" immediately and processes actions in background
-   * Frontend can poll GET /action/:id to check status updates
+   * Called internally by processDecisions() when decision is "accept"
    * @param actionIds - Array of action IDs to execute
    * @returns Array of actions with status updated to "executing"
    */
-  async executeActions(actionIds: string[]): Promise<RecommendedAction[]> {
+  private async executeActions(actionIds: string[]): Promise<RecommendedAction[]> {
     logger.info(`[SendoWorkerService] Starting execution of ${actionIds.length} actions...`);
 
     if (actionIds.length === 0) {

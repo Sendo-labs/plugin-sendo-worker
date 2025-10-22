@@ -108,13 +108,20 @@ GET /analysis/:analysisId/actions
 
 Returns recommended actions for a specific analysis.
 
-#### Execute Actions
+#### Decide on Actions
 ```bash
-POST /actions/execute
-Body: { actionIds: ["rec-123", "rec-456"] }
+POST /actions/decide
+Body: {
+  decisions: [
+    { actionId: "rec-123", decision: "accept" },
+    { actionId: "rec-456", decision: "reject" }
+  ]
+}
 ```
 
-Executes recommended actions asynchronously.
+Decide on recommended actions:
+- **accept**: Executes the action asynchronously
+- **reject**: Marks as rejected without execution
 
 #### Check Action Status
 ```bash

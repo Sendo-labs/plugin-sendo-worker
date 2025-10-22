@@ -121,33 +121,45 @@ async function runAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): P
 }
 
 /**
- * POST /worker/actions/execute
- * Execute one or more recommended actions
- * Returns immediately with "executing" status, actions process in background
+ * POST /actions/decide
+ * Decide on one or more recommended actions (accept/reject)
+ * - accept: Executes the action immediately (async)
+ * - reject: Marks as rejected without execution
  */
-async function executeActionsHandler(req: any, res: any, runtime: IAgentRuntime): Promise<void> {
-  const { actionIds } = req.body as { actionIds: string[] };
+async function decideActionsHandler(req: any, res: any, runtime: IAgentRuntime): Promise<void> {
+  const { decisions } = req.body as { decisions: Array<{ actionId: string; decision: 'accept' | 'reject' }> };
   const workerService = runtime.getService<SendoWorkerService>('sendo_worker');
 
   if (!workerService) {
     return sendError(res, 500, 'SERVICE_NOT_FOUND', 'SendoWorkerService not found');
   }
 
-  if (!actionIds || !Array.isArray(actionIds) || actionIds.length === 0) {
-    return sendError(res, 400, 'INVALID_REQUEST', 'actionIds must be a non-empty array');
+  if (!decisions || !Array.isArray(decisions) || decisions.length === 0) {
+    return sendError(res, 400, 'INVALID_REQUEST', 'decisions must be a non-empty array');
+  }
+
+  // Validate decisions
+  for (const { actionId, decision } of decisions) {
+    if (!actionId || typeof actionId !== 'string') {
+      return sendError(res, 400, 'INVALID_REQUEST', 'Each decision must have a valid actionId');
+    }
+    if (!['accept', 'reject'].includes(decision)) {
+      return sendError(res, 400, 'INVALID_DECISION', `Decision must be "accept" or "reject", got "${decision}"`);
+    }
   }
 
   try {
-    // Execute actions (returns immediately with "executing" status)
-    const executingActions = await workerService.executeActions(actionIds);
+    // Process decisions
+    const result = await workerService.processDecisions(decisions);
 
     sendSuccess(res, {
-      message: `${executingActions.length} actions are now executing`,
-      actions: executingActions,
+      processed: decisions.length,
+      accepted: result.accepted,
+      rejected: result.rejected,
     });
   } catch (error: any) {
-    logger.error('[Route] Failed to execute actions:', error);
-    sendError(res, 500, 'EXECUTION_ERROR', 'Failed to execute actions', error.message);
+    logger.error('[Route] Failed to process decisions:', error);
+    sendError(res, 500, 'DECISION_ERROR', 'Failed to process decisions', error.message);
   }
 }
 
@@ -178,7 +190,7 @@ export const sendoWorkerRoutes: Route[] = [
   },
   {
     type: 'POST',
-    path: '/actions/execute',
-    handler: executeActionsHandler,
+    path: '/actions/decide',
+    handler: decideActionsHandler,
   },
 ];
