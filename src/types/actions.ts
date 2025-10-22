@@ -27,7 +27,7 @@ export interface RecommendedAction {
   estimatedGas?: string;
 
   // State and execution
-  status: 'pending' | 'accepted' | 'rejected' | 'executing' | 'completed' | 'failed';
+  status: 'pending' | 'rejected' | 'executing' | 'completed' | 'failed';
   decidedAt?: string;
   executedAt?: string;
 
@@ -38,6 +38,7 @@ export interface RecommendedAction {
     timestamp: string;
   };
   error?: string;
+  errorType?: 'execution_error' | 'business_error'; // execution_error: technical failure (action not found), business_error: action failed (e.g., insufficient funds)
 
   createdAt: string;
 }

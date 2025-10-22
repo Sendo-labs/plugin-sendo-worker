@@ -261,7 +261,7 @@ export class SendoWorkerService extends Service {
    * @param dataActions - Array of DATA actions to execute
    * @returns Array of action execution results
    */
-  async executeAnalysisActions(dataActions: Action[]): Promise<AnalysisActionResult[]> {
+  async executeAnalysisActions(dataActions: Action[], analysisSessionId?: string): Promise<AnalysisActionResult[]> {
     logger.info('[SendoWorkerService] Executing DATA actions...');
 
     if (dataActions.length === 0) {
@@ -269,13 +269,12 @@ export class SendoWorkerService extends Service {
       return [];
     }
 
-    // Create a stable worldId for all actions (agent + month)
-    // This allows grouping all analyses from the same agent in the same month
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    // Create a worldId unique per analysis session
+    // Each analysis session gets its own world to avoid conflicts between different users/sessions
+    const sessionId = analysisSessionId || crypto.randomUUID();
     const worldId = createUniqueUuid(
       this.runtime,
-      `sendo-worker-${monthKey}`
+      `sendo-analysis-${sessionId}`
     );
 
     // Execute each action in parallel
@@ -809,16 +808,34 @@ export class SendoWorkerService extends Service {
           );
 
           if (!action) {
-            throw new Error(`Action ${recommendedAction.actionType} not found in runtime`);
+            const error = new Error(`Action ${recommendedAction.actionType} not found in runtime`);
+            (error as any).isExecutionError = true;
+            throw error;
           }
 
           // 3. Create memory with unique ID to trigger the action
           const messageId = crypto.randomUUID() as UUID;
+          const roomId = crypto.randomUUID() as UUID;
+
+          // Create a worldId unique per analysis (each analysis represents a user session)
+          const actionWorldId = createUniqueUuid(
+            this.runtime,
+            `sendo-analysis-${recommendedAction.analysisId}`
+          );
+
+          // Ensure room exists in database (required for memory storage)
+          await this.runtime.ensureRoomExists({
+            id: roomId,
+            source: 'sendo-worker',
+            type: ChannelType.API,
+            worldId: actionWorldId,
+          });
+
           const memory: Memory = {
             id: messageId,
             entityId: this.runtime.agentId,
             agentId: this.runtime.agentId,
-            roomId: crypto.randomUUID() as UUID,
+            roomId,
             content: {
               text: recommendedAction.triggerMessage,
             },
@@ -871,13 +888,14 @@ export class SendoWorkerService extends Service {
 
               logger.info(`[SendoWorkerService] ✅ Action ${actionId} completed successfully`);
             } else {
-              // Action failed
+              // Action failed - business error (e.g., insufficient funds, swap failed)
               const errorMessage = extractErrorMessage(actionResult, 'Action execution failed');
               await db
                 .update(recommendedActions)
                 .set({
                   status: 'failed',
                   error: errorMessage,
+                  errorType: 'business_error',
                   executedAt,
                 })
                 .where(eq(recommendedActions.id, actionId));
@@ -885,12 +903,13 @@ export class SendoWorkerService extends Service {
               logger.warn(`[SendoWorkerService] ⚠️ Action ${actionId} failed: ${errorMessage}`);
             }
           } else {
-            // No result - mark as failed
+            // No result - mark as failed with business error
             await db
               .update(recommendedActions)
               .set({
                 status: 'failed',
                 error: 'No result returned from action',
+                errorType: 'business_error',
                 executedAt,
               })
               .where(eq(recommendedActions.id, actionId));
@@ -899,15 +918,18 @@ export class SendoWorkerService extends Service {
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
+          const isExecutionError = (error as any).isExecutionError === true;
+
           logger.error(`[SendoWorkerService] ❌ Action ${actionId} failed: ${errorMessage}`);
 
-          // Update database with error
+          // Update database with error and errorType
           const db = this.getDb();
           await db
             .update(recommendedActions)
             .set({
               status: 'failed',
               error: errorMessage,
+              errorType: isExecutionError ? 'execution_error' : 'business_error',
               executedAt: new Date(),
             })
             .where(eq(recommendedActions.id, actionId));
@@ -963,8 +985,10 @@ export class SendoWorkerService extends Service {
       params: action.params as Record<string, any>,
       estimatedImpact: action.estimatedImpact,
       estimatedGas: action.estimatedGas ?? undefined,
-      status: action.status as 'pending' | 'executed' | 'failed',
+      status: action.status as 'pending' | 'rejected' | 'executing' | 'completed' | 'failed',
       executedAt: action.executedAt?.toISOString() ?? undefined,
+      error: action.error ?? undefined,
+      errorType: action.errorType ?? undefined,
       createdAt: action.createdAt?.toISOString() ?? new Date().toISOString(),
     }));
 
@@ -1039,6 +1063,7 @@ export class SendoWorkerService extends Service {
       executedAt: row.executedAt?.toISOString(),
       result: row.result as any,
       error: row.error ?? undefined,
+      errorType: row.errorType ?? undefined,
       createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
     }));
   }
@@ -1081,6 +1106,7 @@ export class SendoWorkerService extends Service {
       executedAt: row.executedAt?.toISOString(),
       result: row.result as any,
       error: row.error ?? undefined,
+      errorType: row.errorType ?? undefined,
       createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
     };
   }

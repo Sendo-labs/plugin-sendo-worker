@@ -48,7 +48,7 @@ describe('API Routes - Integration Tests', () => {
           relevantActions: ['GET_WALLET_BALANCE', 'GET_MARKET_DATA'],
           reasoning: 'Mock selection',
         });
-      }
+      } 
 
       // Mock generate analysis
       if (prompt.includes('Generate comprehensive analysis')) {
@@ -75,7 +75,7 @@ describe('API Routes - Integration Tests', () => {
       }
 
       return Promise.resolve({});
-    });
+    }) as any;
 
     // Create test data
     const db = (runtime as any).db;
@@ -275,6 +275,150 @@ describe('API Routes - Integration Tests', () => {
       expect(action).toHaveProperty('confidence');
       expect(action).toHaveProperty('triggerMessage');
       expect(action).toHaveProperty('status');
+      // errorType is optional (only present on failed actions)
+    });
+  });
+
+  describe('Action Error Handling - errorType field', () => {
+    it('should set errorType to execution_error when action is not found', async () => {
+      const db = (runtime as any).db;
+      const actionId = `test-not-found-${Date.now()}`;
+
+      // Create action with type that doesn't exist in runtime
+      await db.insert(recommendedActions).values({
+        id: actionId,
+        analysisId: testAnalysisId,
+        actionType: 'NON_EXISTENT_ACTION',
+        pluginName: 'fake-plugin',
+        priority: 3,
+        reasoning: 'Testing action not found error',
+        confidence: '0.9',
+        triggerMessage: 'Execute non-existent action',
+        params: {},
+        status: 'pending',
+        createdAt: new Date(),
+      });
+
+      // Accept the action (it will try to execute and fail)
+      await service.processDecisions([{ actionId, decision: 'accept' }]);
+
+      // Wait for async execution to complete
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Check the action - should be failed with execution_error
+      const action = await service.getActionById(actionId);
+      expect(action.status).toBe('failed');
+      expect(action.error).toBeDefined();
+      expect(action.error).toContain('not found');
+      expect(action.errorType).toBe('execution_error');
+      expect(action.executedAt).toBeDefined();
+    });
+
+    it('should set errorType to business_error when action returns error result', async () => {
+      const db = (runtime as any).db;
+      const actionId = `test-business-error-${Date.now()}`;
+
+      // Mock an action that fails with business error
+      const failingAction = {
+        name: 'FAILING_BUSINESS_ACTION',
+        description: 'An action that fails with business error',
+        examples: [],
+        similes: ['FAIL'],
+        validate: async () => true,
+        handler: async () => ({
+          text: 'Insufficient funds to complete transaction',
+          success: false,
+          error: 'Insufficient USDC balance. Available: 100, Required: 1000',
+        }),
+      };
+
+      runtime.actions.push(failingAction as any);
+
+      await db.insert(recommendedActions).values({
+        id: actionId,
+        analysisId: testAnalysisId,
+        actionType: 'FAILING_BUSINESS_ACTION',
+        pluginName: 'test-plugin',
+        priority: 3,
+        reasoning: 'Testing business error',
+        confidence: '0.9',
+        triggerMessage: 'Execute action with business error',
+        params: {},
+        status: 'pending',
+        createdAt: new Date(),
+      });
+
+      await service.processDecisions([{ actionId, decision: 'accept' }]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const action = await service.getActionById(actionId);
+      expect(action.status).toBe('failed');
+      expect(action.error).toContain('Insufficient');
+      expect(action.errorType).toBe('business_error');
+      expect(action.executedAt).toBeDefined();
+    });
+
+    it('should set errorType to business_error when action returns no result', async () => {
+      const db = (runtime as any).db;
+      const actionId = `test-no-result-${Date.now()}`;
+
+      // Mock an action that returns nothing
+      const noResultAction = {
+        name: 'NO_RESULT_ACTION',
+        description: 'An action that returns no result',
+        examples: [],
+        similes: ['NO_RESULT'],
+        validate: async () => true,
+        handler: async () => null as any,
+      };
+
+      runtime.actions.push(noResultAction as any);
+
+      await db.insert(recommendedActions).values({
+        id: actionId,
+        analysisId: testAnalysisId,
+        actionType: 'NO_RESULT_ACTION',
+        pluginName: 'test-plugin',
+        priority: 2,
+        reasoning: 'Testing no result error',
+        confidence: '0.8',
+        triggerMessage: 'Execute action that returns no result',
+        params: {},
+        status: 'pending',
+        createdAt: new Date(),
+      });
+
+      await service.processDecisions([{ actionId, decision: 'accept' }]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const action = await service.getActionById(actionId);
+      expect(action.status).toBe('failed');
+      expect(action.error).toContain('No result');
+      expect(action.errorType).toBe('business_error');
+    });
+
+    it('should not include errorType field for pending actions', async () => {
+      const db = (runtime as any).db;
+      const actionId = `test-pending-${Date.now()}`;
+
+      await db.insert(recommendedActions).values({
+        id: actionId,
+        analysisId: testAnalysisId,
+        actionType: 'SOME_PENDING_ACTION',
+        pluginName: 'test-plugin',
+        priority: 2,
+        reasoning: 'Testing pending action has no errorType',
+        confidence: '0.85',
+        triggerMessage: 'Pending action',
+        params: {},
+        status: 'pending',
+        createdAt: new Date(),
+      });
+
+      const action = await service.getActionById(actionId);
+      expect(action.status).toBe('pending');
+      expect(action.error).toBeUndefined();
+      expect(action.errorType).toBeUndefined();
     });
   });
 
