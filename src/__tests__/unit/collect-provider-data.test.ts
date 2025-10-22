@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import type { IAgentRuntime } from '@elizaos/core';
 
 describe('SendoWorkerService - collectProviderData', () => {

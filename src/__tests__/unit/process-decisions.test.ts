@@ -5,10 +5,10 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import type { IAgentRuntime, UUID } from '@elizaos/core';
-import { analysisResults, recommendedActions } from '../../schemas/index.js';
+import { analysisResults, recommendedActions } from '../../schemas/index';
 
 describe('SendoWorkerService - processDecisions', () => {
   let runtime: IAgentRuntime;

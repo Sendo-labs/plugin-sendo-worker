@@ -4,10 +4,11 @@
  * Tests action categorization with REAL runtime and actions
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
-import type { IAgentRuntime } from '@elizaos/core';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
+import { setupLLMMock } from '../helpers/mock-llm';
+import type { IAgentRuntime, Action } from '@elizaos/core';
 
 describe('SendoWorkerService - categorizeActions', () => {
   let runtime: IAgentRuntime;
@@ -25,47 +26,11 @@ describe('SendoWorkerService - categorizeActions', () => {
     service = new SendoWorkerService(runtime);
     await service.initialize(runtime);
 
-    // Mock LLM calls for categorization (we mock LLM, not the actions!)
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const actionName = options.prompt.match(/\*\*Name:\*\*\s*([A-Z_]+)/)?.[1];
-
-      console.log('[TEST] Mock LLM called for action:', actionName);
-
-      // Mock categorization responses based on action name
-      if (actionName?.includes('GET_') || actionName?.includes('ASSESS')) {
-        const response = {
-          category: 'DATA',
-          actionType: actionName.includes('BALANCE')
-            ? 'wallet_info'
-            : actionName.includes('MARKET')
-              ? 'market_info'
-              : 'risk_info',
-          confidence: 0.95,
-          reasoning: `${actionName} retrieves data`,
-        };
-        console.log('[TEST] Categorized as DATA:', response);
-        return Promise.resolve(response);
-      } else if (actionName?.includes('EXECUTE') || actionName?.includes('REBALANCE')) {
-        const response = {
-          category: 'ACTION',
-          actionType: actionName.includes('SWAP') ? 'swap' : 'rebalance',
-          confidence: 0.9,
-          reasoning: `${actionName} executes on-chain action`,
-        };
-        console.log('[TEST] Categorized as ACTION:', response);
-        return Promise.resolve(response);
-      }
-
-      // Default
-      const response = {
-        category: 'DATA',
-        actionType: 'unknown',
-        confidence: 0.5,
-        reasoning: 'Unknown action',
-      };
-      console.log('[TEST] Categorized as DATA (default):', response);
-      return Promise.resolve(response);
-    }) as any;
+    // Setup LLM mock using fixture-based system
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      logPrompts: false,
+    });
   });
 
   afterAll(async () => {
@@ -158,7 +123,8 @@ describe('SendoWorkerService - categorizeActions', () => {
     const emptyService = new SendoWorkerService(emptyRuntime);
     await emptyService.initialize(emptyRuntime);
 
-    emptyRuntime.useModel = runtime.useModel; // Use same mock
+    // Setup same LLM mock
+    setupLLMMock(emptyRuntime, { useFixtures: true });
 
     const result = await emptyService.categorizeActions();
 

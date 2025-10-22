@@ -4,11 +4,12 @@
  * Tests LLM-based analysis generation from action results and provider data
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
+import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime } from '@elizaos/core';
-import type { AnalysisActionResult, ProviderDataResult } from '../../types/index.js';
+import type { AnalysisActionResult, ProviderDataResult } from '../../types/index';
 
 describe('SendoWorkerService - generateAnalysis', () => {
   let runtime: IAgentRuntime;
@@ -24,15 +25,8 @@ describe('SendoWorkerService - generateAnalysis', () => {
     service = new SendoWorkerService(runtime);
     await service.initialize(runtime);
 
-    // Mock LLM to return analysis with 4 sections
-    runtime.useModel = mock(() => {
-      return Promise.resolve({
-        walletOverview: 'Portfolio contains 100 SOL and 5000 USDC. Total value: $15,000.',
-        marketConditions: 'SOL trading at $95. Bullish sentiment with 15% gain this week.',
-        riskAssessment: 'Medium risk (60/100). High SOL exposure at 66% of portfolio.',
-        opportunities: 'Consider rebalancing to 50/50 to reduce volatility and improve risk-adjusted returns.',
-      });
-    }) as any;
+    // Setup LLM mock using fixtures
+    setupLLMMock(runtime, { useFixtures: true });
   });
 
   afterAll(async () => {
@@ -68,14 +62,27 @@ describe('SendoWorkerService - generateAnalysis', () => {
   it('should include action results in analysis', async () => {
     let capturedPrompt = '';
 
-    runtime.useModel = mock((_modelType: any, options: any) => {
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        analysis: () => {
+          // Capture the prompt by accessing runtime's last call
+          // This is a bit of a hack, but works for testing
+          return {
+            walletOverview: 'Test',
+            marketConditions: 'Test',
+            riskAssessment: 'Test',
+            opportunities: 'Test',
+          };
+        },
+      },
+    });
+
+    // Override to capture prompt
+    const originalUseModel = runtime.useModel;
+    runtime.useModel = ((modelType: any, options: any) => {
       capturedPrompt = options.prompt as string;
-      return Promise.resolve({
-        walletOverview: 'Test',
-        marketConditions: 'Test',
-        riskAssessment: 'Test',
-        opportunities: 'Test',
-      });
+      return originalUseModel(modelType, options);
     }) as any;
 
     const analysisResults: AnalysisActionResult[] = [
@@ -105,14 +112,13 @@ describe('SendoWorkerService - generateAnalysis', () => {
   it('should include provider data in analysis', async () => {
     let capturedPrompt = '';
 
-    runtime.useModel = mock((_modelType: any, options: any) => {
+    setupLLMMock(runtime, { useFixtures: true });
+
+    // Override to capture prompt
+    const originalUseModel = runtime.useModel;
+    runtime.useModel = ((modelType: any, options: any) => {
       capturedPrompt = options.prompt as string;
-      return Promise.resolve({
-        walletOverview: 'Test',
-        marketConditions: 'Test',
-        riskAssessment: 'Test',
-        opportunities: 'Test',
-      });
+      return originalUseModel(modelType, options);
     }) as any;
 
     const analysisResults: AnalysisActionResult[] = [];
@@ -142,14 +148,13 @@ describe('SendoWorkerService - generateAnalysis', () => {
   it('should handle failed action results', async () => {
     let capturedPrompt = '';
 
-    runtime.useModel = mock((_modelType: any, options: any) => {
+    setupLLMMock(runtime, { useFixtures: true });
+
+    // Override to capture prompt
+    const originalUseModel = runtime.useModel;
+    runtime.useModel = ((modelType: any, options: any) => {
       capturedPrompt = options.prompt as string;
-      return Promise.resolve({
-        walletOverview: 'Test',
-        marketConditions: 'Test',
-        riskAssessment: 'Test',
-        opportunities: 'Test',
-      });
+      return originalUseModel(modelType, options);
     }) as any;
 
     const analysisResults: AnalysisActionResult[] = [

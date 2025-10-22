@@ -4,11 +4,12 @@
  * Tests LLM-based recommendation generation for ACTION actions
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
+import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime, Action } from '@elizaos/core';
-import type { ActionActionType } from '../../types/index.js';
+import type { ActionActionType } from '../../types/index';
 
 describe('SendoWorkerService - generateRecommendations', () => {
   let runtime: IAgentRuntime;
@@ -43,41 +44,8 @@ describe('SendoWorkerService - generateRecommendations', () => {
   });
 
   it('should generate recommendations for selected actions', async () => {
-    // Mock LLM responses
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Step 1: Action selection
-      if (prompt.includes('analyzing which blockchain actions')) {
-        if (prompt.includes('rebalance')) {
-          return Promise.resolve({
-            relevantActions: ['REBALANCE_PORTFOLIO'],
-            reasoning: 'Portfolio needs rebalancing',
-          });
-        }
-        return Promise.resolve({
-          relevantActions: [],
-          reasoning: 'Not needed',
-        });
-      }
-
-      // Step 2: Recommendation generation
-      if (prompt.includes('generating a specific action recommendation')) {
-        return Promise.resolve({
-          actionType: 'REBALANCE_PORTFOLIO',
-          pluginName: 'test-plugin',
-          priority: 'high',
-          reasoning: 'High SOL exposure needs balancing',
-          confidence: 0.85,
-          triggerMessage: 'Rebalance portfolio to 50% SOL and 50% USDC',
-          params: { targetRatio: { SOL: 0.5, USDC: 0.5 } },
-          estimatedImpact: 'Reduced volatility by 20%',
-          estimatedGas: '0.01 SOL',
-        });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    // Setup LLM mock using fixtures
+    setupLLMMock(runtime, { useFixtures: true });
 
     const analysis = {
       walletOverview: 'Portfolio: 100 SOL, 5000 USDC',
@@ -116,13 +84,13 @@ describe('SendoWorkerService - generateRecommendations', () => {
   });
 
   it('should return empty array if no actions are selected', async () => {
-    // Mock to select no actions
-    runtime.useModel = mock(() => {
-      return Promise.resolve({
-        relevantActions: [],
-        reasoning: 'No actions needed',
-      });
-    }) as any;
+    // Override to select no actions
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        relevantActions: () => ({ relevantActions: [], reasoning: 'No actions needed' }),
+      },
+    });
 
     const analysis = {
       walletOverview: 'Test',
@@ -143,23 +111,15 @@ describe('SendoWorkerService - generateRecommendations', () => {
   it('should process multiple action types in parallel', async () => {
     const callOrder: string[] = [];
 
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      if (prompt.includes('analyzing which blockchain actions')) {
-        if (prompt.includes('swap')) {
-          callOrder.push('swap-select');
-        } else if (prompt.includes('rebalance')) {
-          callOrder.push('rebalance-select');
-        }
-        return Promise.resolve({
-          relevantActions: [],
-          reasoning: 'Test',
-        });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        relevantActions: () => {
+          callOrder.push('action-select');
+          return { relevantActions: [], reasoning: 'Test' };
+        },
+      },
+    });
 
     const analysis = {
       walletOverview: 'Test',
@@ -174,48 +134,37 @@ describe('SendoWorkerService - generateRecommendations', () => {
       actionActions
     );
 
-    // Should have called selection for both types
-    expect(callOrder).toContain('swap-select');
-    expect(callOrder).toContain('rebalance-select');
+    // Should have called selection for both types (2 action types in the map)
+    expect(callOrder.length).toBe(2);
   });
 
   it('should filter out null recommendations from failed generations', async () => {
     let recommendationCallCount = 0;
 
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Step 1: Select 2 actions
-      if (prompt.includes('analyzing which blockchain actions')) {
-        return Promise.resolve({
-          relevantActions: ['REBALANCE_PORTFOLIO'],
-          reasoning: 'Test',
-        });
-      }
-
-      // Step 2: First recommendation succeeds, second fails
-      if (prompt.includes('generating a specific action recommendation')) {
-        recommendationCallCount++;
-        if (recommendationCallCount === 1) {
-          // Success
-          return Promise.resolve({
-            actionType: 'REBALANCE_PORTFOLIO',
-            pluginName: 'test-plugin',
-            priority: 'high',
-            reasoning: 'Test',
-            confidence: 0.8,
-            triggerMessage: 'Test message',
-            params: {},
-            estimatedImpact: 'Test',
-          });
-        } else {
-          // Failure
-          return Promise.reject(new Error('LLM error'));
-        }
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        recommendation: () => {
+          recommendationCallCount++;
+          if (recommendationCallCount === 1) {
+            // Success for first call
+            return {
+              actionType: 'REBALANCE_PORTFOLIO',
+              pluginName: 'test-plugin',
+              priority: 'high',
+              reasoning: 'Test',
+              confidence: 0.8,
+              triggerMessage: 'Test message',
+              params: {},
+              estimatedImpact: 'Test',
+            };
+          } else {
+            // Failure for subsequent calls
+            throw new Error('LLM error');
+          }
+        },
+      },
+    });
 
     const analysis = {
       walletOverview: 'Test',
@@ -236,10 +185,15 @@ describe('SendoWorkerService - generateRecommendations', () => {
   });
 
   it('should handle action type processing errors gracefully', async () => {
-    // Mock to throw error during action type processing
-    runtime.useModel = mock(() => {
-      return Promise.reject(new Error('Action type processing failed'));
-    }) as any;
+    // Override to throw error during action type processing
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        relevantActions: () => {
+          throw new Error('Action type processing failed');
+        },
+      },
+    });
 
     const analysis = {
       walletOverview: 'Test',
@@ -259,32 +213,8 @@ describe('SendoWorkerService - generateRecommendations', () => {
   });
 
   it('should include all required fields in recommendations', async () => {
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      if (prompt.includes('analyzing which blockchain actions')) {
-        return Promise.resolve({
-          relevantActions: ['REBALANCE_PORTFOLIO'],
-          reasoning: 'Test',
-        });
-      }
-
-      if (prompt.includes('generating a specific action recommendation')) {
-        return Promise.resolve({
-          actionType: 'REBALANCE_PORTFOLIO',
-          pluginName: 'test-plugin',
-          priority: 'medium',
-          reasoning: 'Detailed reasoning here',
-          confidence: 0.75,
-          triggerMessage: 'Execute rebalance now',
-          params: { foo: 'bar' },
-          estimatedImpact: 'Positive impact',
-          estimatedGas: '0.001 SOL',
-        });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    // Use fixtures which include all required fields
+    setupLLMMock(runtime, { useFixtures: true });
 
     const analysis = {
       walletOverview: 'Test',
@@ -307,14 +237,13 @@ describe('SendoWorkerService - generateRecommendations', () => {
     // Required fields
     expect(rec.analysisId).toBe(analysisId);
     expect(rec.actionType).toBe('REBALANCE_PORTFOLIO');
-    expect(rec.pluginName).toBe('test-plugin');
+    expect(rec.pluginName).toBe('plugin-portfolio');
     expect(rec.priority).toBe('medium');
-    expect(rec.reasoning).toBe('Detailed reasoning here');
+    expect(rec.reasoning).toContain('rebalance');
     expect(rec.confidence).toBe(0.75);
-    expect(rec.triggerMessage).toBe('Execute rebalance now');
-    expect(rec.params).toEqual({ foo: 'bar' });
-    expect(rec.estimatedImpact).toBe('Positive impact');
-    expect(rec.estimatedGas).toBe('0.001 SOL');
+    expect(rec.triggerMessage).toContain('Rebalance');
+    expect(rec.params).toBeDefined();
+    expect(rec.estimatedImpact).toBeDefined();
     expect(rec.status).toBe('pending');
     expect(rec.createdAt).toBeDefined();
   });

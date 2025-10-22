@@ -4,9 +4,10 @@
  * Tests database persistence of analysis and recommendations
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
+import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime } from '@elizaos/core';
 
 describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
@@ -25,66 +26,8 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
     service = new SendoWorkerService(runtime);
     await service.initialize(runtime);
 
-    // Mock LLM for complete workflow
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Categorization
-      if (prompt.includes('**Name:**') && prompt.includes('category')) {
-        const actionName = prompt.match(/\*\*Name:\*\*\s*([A-Z_]+)/)?.[1];
-        if (actionName?.includes('GET_') || actionName?.includes('ASSESS')) {
-          return Promise.resolve({ category: 'DATA', actionType: 'wallet_info' });
-        }
-        return Promise.resolve({ category: 'ACTION', actionType: 'SWAP' });
-      }
-
-      // Select DATA actions
-      if (prompt.includes('determine which DATA actions are relevant')) {
-        return Promise.resolve({
-          relevantActions: ['GET_WALLET_BALANCE'],
-          reasoning: 'Need balance',
-        });
-      }
-
-      // Generate trigger for DATA action
-      if (prompt.includes('Generate a natural language trigger')) {
-        return Promise.resolve({ triggerMessage: 'Get my wallet balance' });
-      }
-
-      // Generate analysis
-      if (prompt.includes('crypto portfolio analyst') && prompt.includes('comprehensive analysis')) {
-        return Promise.resolve({
-          walletOverview: 'Portfolio overview',
-          marketConditions: 'Market conditions',
-          riskAssessment: 'Risk assessment',
-          opportunities: 'Opportunities',
-        });
-      }
-
-      // Select ACTION actions
-      if (prompt.includes('analyzing which blockchain actions')) {
-        return Promise.resolve({
-          relevantActions: ['REBALANCE_PORTFOLIO'],
-          reasoning: 'Need rebalance',
-        });
-      }
-
-      // Generate recommendation
-      if (prompt.includes('generating a specific action recommendation')) {
-        return Promise.resolve({
-          actionType: 'REBALANCE_PORTFOLIO',
-          pluginName: 'test-plugin',
-          priority: 'high',
-          reasoning: 'High risk',
-          confidence: 0.85,
-          triggerMessage: 'Rebalance portfolio',
-          params: {},
-          estimatedImpact: 'Reduced risk',
-        });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    // Setup LLM mock using fixture-based system
+    setupLLMMock(runtime, { useFixtures: true });
   });
 
   afterAll(async () => {
@@ -140,35 +83,13 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
   });
 
   it('should handle saving with no recommendations', async () => {
-    // Mock to return no recommendations
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Return minimal responses
-      if (prompt.includes('category')) {
-        return Promise.resolve({ category: 'DATA', actionType: 'wallet_info' });
-      }
-      if (prompt.includes('determine which DATA actions are relevant')) {
-        return Promise.resolve({ relevantActions: ['GET_WALLET_BALANCE'], reasoning: 'Test' });
-      }
-      if (prompt.includes('Generate a natural language trigger')) {
-        return Promise.resolve({ triggerMessage: 'Get balance' });
-      }
-      if (prompt.includes('comprehensive analysis')) {
-        return Promise.resolve({
-          walletOverview: 'Test',
-          marketConditions: 'Test',
-          riskAssessment: 'Test',
-          opportunities: 'Test',
-        });
-      }
-      // No ACTION actions selected
-      if (prompt.includes('analyzing which blockchain actions')) {
-        return Promise.resolve({ relevantActions: [], reasoning: 'None needed' });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    // Override to return no ACTION actions
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      overrides: {
+        relevantActions: () => ({ relevantActions: [], reasoning: 'None needed' }),
+      },
+    });
 
     const result = await service.runAnalysis(runtime.agentId, true);
 
@@ -176,6 +97,9 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
     const saved = await service.getAnalysisResult(result.id);
     expect(saved).not.toBeNull();
     expect(saved!.recommendedActions.length).toBe(0);
+
+    // Restore default mock for other tests
+    setupLLMMock(runtime, { useFixtures: true });
   });
 
   it('should filter out null/undefined recommendations before saving', async () => {

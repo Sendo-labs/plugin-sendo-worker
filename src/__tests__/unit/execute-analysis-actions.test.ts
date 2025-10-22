@@ -4,9 +4,10 @@
  * Tests parallel execution of DATA actions with dynamic triggers
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService.js';
-import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
+import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime, Action } from '@elizaos/core';
 
 describe('SendoWorkerService - executeAnalysisActions', () => {
@@ -26,43 +27,11 @@ describe('SendoWorkerService - executeAnalysisActions', () => {
     service = new SendoWorkerService(runtime);
     await service.initialize(runtime);
 
-    // Mock LLM for both categorization AND trigger generation
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Check if this is a categorization prompt (contains **Name:** and **Description:** and "DATA" | "ACTION")
-      if (prompt.includes('**Name:**') && prompt.includes('category')) {
-        const actionName = prompt.match(/\*\*Name:\*\*\s*([A-Z_]+)/)?.[1];
-
-        // Categorize all as DATA for this test
-        if (actionName?.includes('GET_') || actionName?.includes('ASSESS')) {
-          return Promise.resolve({
-            category: 'DATA',
-            actionType: actionName.includes('BALANCE')
-              ? 'wallet_info'
-              : actionName.includes('MARKET')
-                ? 'market_info'
-                : 'risk_info',
-            confidence: 0.95,
-            reasoning: `${actionName} retrieves data`,
-          });
-        }
-      }
-
-      // Check if this is a trigger generation prompt (contains "generate a trigger message")
-      if (prompt.includes('trigger message') || prompt.includes('natural message')) {
-        const actionName = prompt.match(/\*\*Name:\*\*\s*([A-Z_]+)/)?.[1];
-        return Promise.resolve(`Execute ${actionName || 'action'}`);
-      }
-
-      // Default
-      return Promise.resolve({
-        category: 'DATA',
-        actionType: 'unknown',
-        confidence: 0.5,
-        reasoning: 'Unknown action',
-      });
-    }) as any;
+    // Setup LLM mock using fixture-based system
+    setupLLMMock(runtime, {
+      useFixtures: true,
+      logPrompts: false,
+    });
 
     // First, categorize actions to populate dataActions map
     const categorization = await service.categorizeActions();
