@@ -4,11 +4,16 @@
  * Tests all HTTP endpoints exposed by the plugin
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from 'bun:test';
 import { SendoWorkerService } from '../../services/sendoWorkerService.js';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime.js';
+import { setupLLMMock } from '../helpers/mock-llm.js';
 import type { IAgentRuntime, UUID } from '@elizaos/core';
 import { analysisResults, recommendedActions } from '../../schemas/index.js';
+
+// Set default timeout for all tests (higher for real LLM mode)
+const useRealLLM = process.env.USE_REAL_LLM === 'true';
+setDefaultTimeout(useRealLLM ? 60000 : 5000);
 
 describe('API Routes - Integration Tests', () => {
   let runtime: IAgentRuntime;
@@ -18,64 +23,20 @@ describe('API Routes - Integration Tests', () => {
 
   beforeAll(async () => {
     // Create runtime with actions
+    // Limit actions to 10 when using real LLM to reduce costs
     runtime = await createTestRuntime({
       testId: 'api-routes-test',
       withDataActions: true,
       withActionActions: true,
       withProviders: true,
+      limitActions: useRealLLM ? 10 : undefined,
     });
 
     service = new SendoWorkerService(runtime);
     await service.initialize(runtime);
 
-    // Mock LLM for runAnalysis tests
-    runtime.useModel = mock((_modelType: any, options: any) => {
-      const prompt = options.prompt as string;
-
-      // Mock categorization responses
-      if (prompt.includes('Categorize this action')) {
-        return Promise.resolve({
-          category: 'DATA',
-          actionType: 'wallet_info',
-          confidence: 0.95,
-          reasoning: 'Mock categorization',
-        });
-      }
-
-      // Mock select relevant actions
-      if (prompt.includes('Which actions are relevant')) {
-        return Promise.resolve({
-          relevantActions: ['GET_WALLET_BALANCE', 'GET_MARKET_DATA'],
-          reasoning: 'Mock selection',
-        });
-      } 
-
-      // Mock generate analysis
-      if (prompt.includes('Generate comprehensive analysis')) {
-        return Promise.resolve({
-          walletOverview: 'Mock wallet overview',
-          marketConditions: 'Mock market conditions',
-          riskAssessment: 'Mock risk assessment',
-          opportunities: 'Mock opportunities',
-        });
-      }
-
-      // Mock generate recommendation
-      if (prompt.includes('Generate recommendation')) {
-        return Promise.resolve({
-          actionType: 'EXECUTE_SWAP',
-          pluginName: 'test-plugin',
-          priority: 'high',
-          reasoning: 'Mock reasoning',
-          confidence: 0.9,
-          triggerMessage: 'Mock trigger',
-          params: { token: 'USDC' },
-          estimatedImpact: 'High',
-        });
-      }
-
-      return Promise.resolve({});
-    }) as any;
+    // Setup LLM mock using fixture-based system
+    setupLLMMock(runtime, { useFixtures: true });
 
     // Create test data
     const db = (runtime as any).db;

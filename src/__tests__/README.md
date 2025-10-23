@@ -7,18 +7,85 @@ This directory contains all tests for the Sendo Worker plugin. Tests are organiz
 ## Quick Start
 
 ```bash
-# Run all tests
+# Run all tests (with mocked LLM - fast & free)
 bun run test:all
 
-# Run only unit tests
+# Run only unit tests (mocked)
 bun run test:unit
 
-# Run only integration tests
+# Run only integration tests (mocked)
 bun run test:integration
+
+# Run tests with REAL OpenRouter LLM (costs money!)
+bun run test:unit:llm         # Unit tests with real LLM
+bun run test:integration:llm  # Integration tests with real LLM
+bun run test:all:llm          # All tests with real LLM
 
 # Run a specific test file
 bun test src/__tests__/unit/categorize-actions.test.ts
 ```
+
+## Testing with Real LLM
+
+By default, all tests use **mocked LLM responses** from fixtures. This is fast, free, and deterministic.
+
+However, you can test with a **real OpenRouter LLM** to validate:
+- Real LLM response quality
+- Prompt engineering changes
+- Production-like behavior
+
+### Setup
+
+1. **Install required plugins** (already in devDependencies):
+   ```bash
+   bun install
+   ```
+
+2. **Set your API keys in `.env`**:
+   ```bash
+   # OpenAI for embeddings
+   OPENAI_API_KEY="sk-your-openai-key-here"
+
+   # OpenRouter for LLM
+   OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+   OPENROUTER_SMALL_MODEL="anthropic/claude-3.5-sonnet"
+   OPENROUTER_LARGE_MODEL="anthropic/claude-3.5-sonnet"
+   ```
+
+3. **Run tests with real LLM**:
+   ```bash
+   # Run all integration tests with real LLM
+   bun run test:integration:llm
+
+   # Run all unit tests with real LLM
+   bun run test:unit:llm
+
+   # Run everything with real LLM
+   bun run test:all:llm
+   ```
+
+### How It Works
+
+When `USE_REAL_LLM=true`:
+1. Test runtime loads `@elizaos/plugin-openai` (for embeddings) and `@elizaos/plugin-openrouter` (for LLM)
+2. `setupLLMMock()` detects the flag and skips mocking
+3. Real API calls are made to OpenAI and OpenRouter
+4. Responses are parsed just like in production
+
+**⚠️ Warning**: This will make **real API calls** and **cost money**. With 46 actions and 27 tests, expect ~100-200 LLM calls per run (~$0.50-$2.00).
+
+### When to Use Real LLM Tests
+
+✅ **Good use cases:**
+- Validating prompt changes work with real LLMs
+- Testing new action types
+- Debugging categorization issues
+- Before deploying to production
+
+❌ **Bad use cases:**
+- Regular development (use mocks)
+- CI/CD pipelines (too slow/expensive)
+- Quick iteration on business logic
 
 ## Test Structure
 
@@ -265,7 +332,7 @@ afterAll(async () => {
 
 ## Future Improvements
 
-- [ ] Enable real LLM testing with environment flag
+- [x] Enable real LLM testing with environment flag ✅
 - [ ] Add performance benchmarks
 - [ ] Generate coverage reports in CI
 - [ ] Add visual regression tests for API responses

@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm';
 import {
-  pgTable,
   varchar,
   uuid,
   text,
@@ -10,7 +9,7 @@ import {
   index,
   smallint,
 } from 'drizzle-orm/pg-core';
-import { analysisResults } from './analysis-results';
+import { analysisResults, sendoWorkerSchema } from './analysis-results';
 
 /**
  * Priority levels as numeric values for proper sorting
@@ -32,7 +31,7 @@ export const PRIORITY_NAMES = {
  * Recommended actions storage table
  * Stores recommended actions from analyses
  */
-export const recommendedActions = pgTable(
+export const recommendedActions = sendoWorkerSchema.table(
   'recommended_actions',
   {
     id: varchar('id', { length: 255 }).primaryKey(),
@@ -52,12 +51,11 @@ export const recommendedActions = pgTable(
     // Trigger
     triggerMessage: text('trigger_message').notNull(),
 
-    // Parameters (optional JSON)
+    // Parameters (optional JSON) - includes estimatedGas
     params: jsonb('params'),
 
     // UI metadata
     estimatedImpact: varchar('estimated_impact', { length: 255 }),
-    estimatedGas: varchar('estimated_gas', { length: 255 }),
 
     // State and execution
     status: varchar('status', { length: 50 }).notNull().default('pending'),

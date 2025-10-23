@@ -51,9 +51,21 @@ function extractActionName(prompt: string): string | null {
  *
  * This replaces runtime.useModel() with a mock that returns appropriate responses
  * based on the prompt type (detected via template patterns).
+ *
+ * Set USE_REAL_LLM=true environment variable to use real LLM instead of mocks.
  */
 export function setupLLMMock(runtime: IAgentRuntime, options: MockLLMOptions = {}) {
   const { useFixtures = true, logPrompts = false, overrides = {} } = options;
+
+  // Check if real LLM should be used
+  const useRealLLM = process.env.USE_REAL_LLM === 'true';
+
+  if (useRealLLM) {
+    console.log('\n🌐 [LLM Mock] USE_REAL_LLM=true detected - using real OpenRouter LLM');
+    console.log('⚠️  [LLM Mock] This will make real API calls and incur costs!\n');
+    // Don't mock - let the real runtime.useModel do its job
+    return runtime;
+  }
 
   runtime.useModel = ((modelType: any, params: any) => {
     const prompt = params.prompt || '';

@@ -22,16 +22,25 @@ export interface TestRuntimeConfig {
   withDataActions?: boolean;
   withActionActions?: boolean;
   withProviders?: boolean;
+  useRealLLM?: boolean; // Set to true to use OpenRouter instead of mocks
+  limitActions?: number; // Limit number of actions to reduce LLM costs (default: all)
 }
 
 /**
  * Create a test runtime with real AgentRuntime
  * Uses actual runtime with controlled test actions
+ *
+ * Set USE_REAL_LLM=true or config.useRealLLM=true to use real OpenRouter API calls.
+ * Make sure OPENROUTER_API_KEY is set in your environment.
  */
 export async function createTestRuntime(config: TestRuntimeConfig = {}): Promise<IAgentRuntime> {
   const testId = config.testId || `test-${uuidv4().slice(0, 8)}`;
+  const useRealLLM = config.useRealLLM || process.env.USE_REAL_LLM === 'true';
 
   logger.info(`[TestRuntime] Creating test runtime: ${testId}`);
+  if (useRealLLM) {
+    logger.info(`[TestRuntime] 🌐 Real LLM mode enabled - will use OpenRouter`);
+  }
 
   // Create test character
   const character: Character = {
@@ -50,22 +59,46 @@ export async function createTestRuntime(config: TestRuntimeConfig = {}): Promise
   // Import sendo-worker plugin for schema
   const sendoWorkerPlugin = await import('../../index');
 
-  // Create REAL AgentRuntime with SQL plugin and sendo-worker plugin
+  // Prepare plugins list
+  const plugins: any[] = [
+    sqlPlugin.default, // Required for database adapter
+    sendoWorkerPlugin.default, // Required for schema tables
+  ];
+
+  // Add OpenRouter and OpenAI plugins if using real LLM
+  // IMPORTANT: OpenRouter MUST be loaded BEFORE OpenAI to take priority for LLM calls
+  if (useRealLLM) {
+    try {
+      // OpenRouter for LLM (MUST BE FIRST)
+      const openrouterPlugin = await import('@elizaos/plugin-openrouter');
+      plugins.push(openrouterPlugin.default);
+      logger.info(`[TestRuntime] ✅ OpenRouter plugin loaded (for LLM)`);
+
+      // OpenAI for embeddings (loaded after OpenRouter)
+      const openaiPlugin = await import('@elizaos/plugin-openai');
+      plugins.push(openaiPlugin.default);
+      logger.info(`[TestRuntime] ✅ OpenAI plugin loaded (for embeddings)`);
+    } catch (error) {
+      logger.error(`[TestRuntime] ❌ Failed to load LLM plugins: ${error}`);
+      throw new Error(
+        'OpenRouter and OpenAI plugins are required for real LLM tests. Install with: bun add -d @elizaos/plugin-openrouter @elizaos/plugin-openai'
+      );
+    }
+  }
+
+  // Create REAL AgentRuntime with plugins
   const runtime = new AgentRuntime({
     character,
-    plugins: [
-      sqlPlugin.default, // Required for database adapter
-      sendoWorkerPlugin.default, // Required for schema tables
-    ],
+    plugins,
   });
 
   // Register test actions (real actions with predictable data)
   if (config.withDataActions) {
-    registerTestDataActions(runtime);
+    registerTestDataActions(runtime, config.limitActions);
   }
 
   if (config.withActionActions) {
-    registerTestActionActions(runtime);
+    registerTestActionActions(runtime, config.limitActions);
   }
 
   // Register test providers
@@ -122,7 +155,7 @@ function createTestAction(
  * Return predictable data for analysis testing
  * Based on real ElizaOS plugin patterns
  */
-function registerTestDataActions(runtime: IAgentRuntime): void {
+function registerTestDataActions(runtime: IAgentRuntime, limit?: number): void {
   // Wallet balance action (simulates plugin-wallet)
   runtime.registerAction({
     name: 'GET_WALLET_BALANCE',
@@ -354,16 +387,18 @@ function registerTestDataActions(runtime: IAgentRuntime): void {
     }),
   ];
 
-  additionalDataActions.forEach((action) => runtime.registerAction(action));
+  // Apply limit if specified (useful for reducing LLM costs in real tests)
+  const actionsToRegister = limit ? additionalDataActions.slice(0, Math.max(0, limit - 3)) : additionalDataActions;
+  actionsToRegister.forEach((action) => runtime.registerAction(action));
 
-  logger.info(`[TestRuntime] Registered ${3 + additionalDataActions.length} DATA actions`);
+  logger.info(`[TestRuntime] Registered ${3 + actionsToRegister.length} DATA actions`);
 }
 
 /**
  * Register test ACTION actions
  * Simulate on-chain operations
  */
-function registerTestActionActions(runtime: IAgentRuntime): void {
+function registerTestActionActions(runtime: IAgentRuntime, limit?: number): void {
   // Swap action (simulates plugin-swap)
   runtime.registerAction({
     name: 'EXECUTE_SWAP',
@@ -626,9 +661,11 @@ function registerTestActionActions(runtime: IAgentRuntime): void {
     }),
   ];
 
-  additionalActionActions.forEach((action) => runtime.registerAction(action));
+  // Apply limit if specified (useful for reducing LLM costs in real tests)
+  const actionsToRegister = limit ? additionalActionActions.slice(0, Math.max(0, limit - 2)) : additionalActionActions;
+  actionsToRegister.forEach((action) => runtime.registerAction(action));
 
-  logger.info(`[TestRuntime] Registered ${2 + additionalActionActions.length} ACTION actions`);
+  logger.info(`[TestRuntime] Registered ${2 + actionsToRegister.length} ACTION actions`);
 }
 
 /**

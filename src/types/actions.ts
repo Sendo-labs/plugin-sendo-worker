@@ -24,7 +24,6 @@ export interface RecommendedAction {
 
   // UI metadata
   estimatedImpact?: string;
-  estimatedGas?: string;
 
   // State and execution
   status: 'pending' | 'rejected' | 'executing' | 'completed' | 'failed';

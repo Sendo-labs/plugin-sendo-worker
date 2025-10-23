@@ -477,6 +477,22 @@ export class SendoWorkerService extends Service {
                   temperature: 0.2,
                 });
 
+                // Transform params from key-value array to object for frontend
+                let parsedParams: Record<string, any> | undefined;
+                if (
+                  recommendation.params &&
+                  Array.isArray(recommendation.params) &&
+                  recommendation.params.length > 0
+                ) {
+                  parsedParams = recommendation.params.reduce(
+                    (acc: Record<string, any>, { key, value }: { key: string; value: any }) => {
+                      acc[key] = value;
+                      return acc;
+                    },
+                    {} as Record<string, any>
+                  );
+                }
+
                 // Build complete RecommendedAction
                 return {
                   id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -487,9 +503,8 @@ export class SendoWorkerService extends Service {
                   reasoning: recommendation.reasoning,
                   confidence: recommendation.confidence,
                   triggerMessage: recommendation.triggerMessage,
-                  params: recommendation.params,
+                  params: parsedParams,
                   estimatedImpact: recommendation.estimatedImpact,
-                  estimatedGas: recommendation.estimatedGas,
                   status: 'pending' as const,
                   createdAt: new Date().toISOString(),
                 } as RecommendedAction;
@@ -498,6 +513,11 @@ export class SendoWorkerService extends Service {
                 logger.error(
                   `[SendoWorkerService] Failed to generate recommendation for ${action.name}: ${errorMessage}`
                 );
+                // Log full error for debugging
+                if (error instanceof Error && error.stack) {
+                  logger.error(`[SendoWorkerService] Stack trace: ${error.stack}`);
+                }
+                logger.error(`[SendoWorkerService] Full error object: ${JSON.stringify(error, null, 2)}`);
                 return null;
               }
             })
@@ -654,7 +674,6 @@ export class SendoWorkerService extends Service {
             triggerMessage: rec.triggerMessage,
             params: rec.params ?? null,
             estimatedImpact: rec.estimatedImpact ?? null,
-            estimatedGas: rec.estimatedGas ?? null,
             status: rec.status,
             createdAt: new Date(rec.createdAt),
           }))
@@ -979,7 +998,6 @@ export class SendoWorkerService extends Service {
       triggerMessage: action.triggerMessage,
       params: action.params as Record<string, any>,
       estimatedImpact: action.estimatedImpact,
-      estimatedGas: action.estimatedGas ?? undefined,
       status: action.status as 'pending' | 'rejected' | 'executing' | 'completed' | 'failed',
       executedAt: action.executedAt?.toISOString() ?? undefined,
       error: action.error ?? undefined,
@@ -1052,7 +1070,6 @@ export class SendoWorkerService extends Service {
       triggerMessage: row.triggerMessage,
       params: row.params as any,
       estimatedImpact: row.estimatedImpact ?? undefined,
-      estimatedGas: row.estimatedGas ?? undefined,
       status: row.status as any,
       decidedAt: row.decidedAt?.toISOString(),
       executedAt: row.executedAt?.toISOString(),
@@ -1095,7 +1112,6 @@ export class SendoWorkerService extends Service {
       triggerMessage: row.triggerMessage,
       params: row.params as any,
       estimatedImpact: row.estimatedImpact ?? undefined,
-      estimatedGas: row.estimatedGas ?? undefined,
       status: row.status as any,
       decidedAt: row.decidedAt?.toISOString(),
       executedAt: row.executedAt?.toISOString(),
