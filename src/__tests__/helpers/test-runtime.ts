@@ -83,6 +83,41 @@ export async function createTestRuntime(config: TestRuntimeConfig = {}): Promise
 }
 
 /**
+ * Helper to create a simple test action
+ */
+function createTestAction(
+  name: string,
+  description: string,
+  category: 'DATA' | 'ACTION',
+  mockData: any
+) {
+  return {
+    name,
+    description,
+    similes: [],
+    examples: [],
+    validate: async () => true,
+    handler: async (_runtime: any, _message: any, _state: any, _options: any, callback: any): Promise<ActionResult> => {
+      const result: ActionResult = {
+        success: true,
+        data: mockData,
+        values: { executed: true, category },
+        text: `${name} executed successfully`,
+      };
+
+      if (callback) {
+        await callback({
+          text: result.text || '',
+          data: result.data,
+          ...result.values,
+        });
+      }
+      return result;
+    },
+  };
+}
+
+/**
  * Register test DATA actions
  * Return predictable data for analysis testing
  * Based on real ElizaOS plugin patterns
@@ -226,7 +261,102 @@ function registerTestDataActions(runtime: IAgentRuntime): void {
     },
   });
 
-  logger.info('[TestRuntime] Registered 3 DATA actions');
+  // Add more varied DATA actions using helper
+  const additionalDataActions = [
+    // Wallet & Portfolio
+    createTestAction('GET_TOKEN_HOLDINGS', 'Get all SPL token holdings', 'DATA', {
+      tokens: [
+        { mint: 'SOL', amount: 100.5, usd: 10050 },
+        { mint: 'USDC', amount: 5000, usd: 5000 },
+        { mint: 'JUP', amount: 1250, usd: 625 },
+      ],
+    }),
+    createTestAction('GET_TRANSACTION_HISTORY', 'Get recent transaction history', 'DATA', {
+      transactions: [
+        { type: 'swap', from: 'SOL', to: 'USDC', amount: 10, timestamp: Date.now() },
+        { type: 'transfer', token: 'SOL', amount: 5, timestamp: Date.now() - 3600000 },
+      ],
+    }),
+    createTestAction('GET_NFT_PORTFOLIO', 'Get NFT collection', 'DATA', {
+      nfts: [
+        { collection: 'Mad Lads', count: 8, floor: 85 },
+        { collection: 'Tensorians', count: 5, floor: 12 },
+      ],
+    }),
+    createTestAction('GET_PORTFOLIO_VALUE', 'Calculate total portfolio value', 'DATA', {
+      totalUsd: 15050,
+      breakdown: { liquid: 15050, staked: 0, lp: 0 },
+    }),
+
+    // Market & Price Data
+    createTestAction('GET_TOKEN_PRICE', 'Get current token price', 'DATA', {
+      token: 'SOL',
+      price: 150,
+      change24h: 5.2,
+    }),
+    createTestAction('GET_PRICE_HISTORY', 'Get historical price data', 'DATA', {
+      prices: [140, 145, 148, 150],
+      timestamps: ['1h', '2h', '3h', '4h'],
+    }),
+    createTestAction('GET_DEX_LIQUIDITY', 'Check DEX liquidity', 'DATA', {
+      pools: [
+        { dex: 'Orca', pair: 'SOL/USDC', tvl: 12000000 },
+        { dex: 'Raydium', pair: 'SOL/USDC', tvl: 8500000 },
+      ],
+    }),
+    createTestAction('GET_TRADING_VOLUME', 'Get 24h trading volume', 'DATA', {
+      volume24h: 1200000000,
+      volumeChange: 15.5,
+    }),
+
+    // DeFi Positions
+    createTestAction('GET_STAKING_POSITIONS', 'Get staking positions', 'DATA', {
+      positions: [
+        { validator: 'Marinade', amount: 50, apy: 6.2, rewards: 0.15 },
+        { validator: 'Jito', amount: 30, apy: 7.1, rewards: 0.08 },
+      ],
+    }),
+    createTestAction('GET_LENDING_POSITIONS', 'Get lending positions', 'DATA', {
+      supplied: [{ protocol: 'MarginFi', asset: 'SOL', amount: 10, apy: 4.2 }],
+      borrowed: [{ protocol: 'Solend', asset: 'USDC', amount: 500, apr: 8.5 }],
+      healthFactor: 1.85,
+    }),
+    createTestAction('GET_LP_POSITIONS', 'Get liquidity positions', 'DATA', {
+      positions: [
+        { pool: 'SOL/USDC', dex: 'Orca', value: 2400, apy: 18.5, il: -2.1 },
+        { pool: 'JUP/SOL', dex: 'Raydium', value: 800, apy: 35.2, il: -8.5 },
+      ],
+    }),
+    createTestAction('GET_YIELD_OPPORTUNITIES', 'Scan yield farming opportunities', 'DATA', {
+      opportunities: [
+        { protocol: 'Kamino', pool: 'USDC', apy: 12.5, risk: 'low' },
+        { protocol: 'Meteora', pool: 'SOL/USDC', apy: 35.0, risk: 'medium' },
+      ],
+    }),
+
+    // Risk & Analytics
+    createTestAction('CALCULATE_IMPERMANENT_LOSS', 'Calculate IL for LP positions', 'DATA', {
+      pools: [
+        { pair: 'SOL/USDC', currentIL: -2.1, projectedIL: -5.0 },
+        { pair: 'JUP/SOL', currentIL: -8.5, projectedIL: -12.0 },
+      ],
+    }),
+    createTestAction('ANALYZE_WALLET_HEALTH', 'Evaluate wallet health', 'DATA', {
+      healthScore: 78,
+      diversification: 0.65,
+      riskLevel: 'medium',
+      warnings: ['High SOL exposure'],
+    }),
+    createTestAction('GET_GAS_ESTIMATES', 'Estimate transaction costs', 'DATA', {
+      swap: 0.00001,
+      stake: 0.00005,
+      addLiquidity: 0.00006,
+    }),
+  ];
+
+  additionalDataActions.forEach((action) => runtime.registerAction(action));
+
+  logger.info(`[TestRuntime] Registered ${3 + additionalDataActions.length} DATA actions`);
 }
 
 /**
@@ -330,7 +460,175 @@ function registerTestActionActions(runtime: IAgentRuntime): void {
     },
   });
 
-  logger.info('[TestRuntime] Registered 2 ACTION actions');
+  // Add more varied ACTION actions using helper
+  const additionalActionActions = [
+    // Trading actions
+    createTestAction('SWAP_VIA_JUPITER', 'Swap via Jupiter aggregator', 'ACTION', {
+      txHash: '0xjupiter123',
+      route: ['SOL', 'JUP'],
+      amountIn: 10,
+      amountOut: 111,
+    }),
+    createTestAction('LIMIT_ORDER_CREATE', 'Create limit order', 'ACTION', {
+      orderId: 'limit-123',
+      side: 'buy',
+      price: 140,
+      amount: 5,
+    }),
+    createTestAction('DCA_ORDER_CREATE', 'Setup DCA order', 'ACTION', {
+      dcaId: 'dca-456',
+      frequency: 'weekly',
+      amount: 100,
+    }),
+
+    // Portfolio management
+    createTestAction('STOP_LOSS_SET', 'Set stop-loss order', 'ACTION', {
+      orderId: 'sl-789',
+      triggerPrice: 130,
+      amount: 5,
+    }),
+    createTestAction('TAKE_PROFIT_SET', 'Set take-profit order', 'ACTION', {
+      orderId: 'tp-012',
+      triggerPrice: 180,
+      amount: 5,
+    }),
+    createTestAction('AUTO_COMPOUND_REWARDS', 'Enable auto-compound', 'ACTION', {
+      enabled: true,
+      protocols: ['marinade', 'orca'],
+      frequency: 'daily',
+    }),
+
+    // Staking actions
+    createTestAction('STAKE_SOL', 'Stake SOL with validator', 'ACTION', {
+      txHash: '0xstake123',
+      amount: 5,
+      validator: 'marinade',
+      mSolReceived: 5,
+    }),
+    createTestAction('UNSTAKE_SOL', 'Unstake SOL', 'ACTION', {
+      txHash: '0xunstake456',
+      amount: 2,
+      cooldownDays: 3,
+    }),
+    createTestAction('CLAIM_STAKING_REWARDS', 'Claim staking rewards', 'ACTION', {
+      txHash: '0xclaim789',
+      rewards: 0.15,
+      autoRestaked: true,
+    }),
+    createTestAction('CHANGE_VALIDATOR', 'Switch validator', 'ACTION', {
+      txHash: '0xswitch012',
+      from: 'validator-a',
+      to: 'jito',
+      amount: 3,
+    }),
+
+    // DeFi Lending
+    createTestAction('SUPPLY_COLLATERAL', 'Supply collateral to lending', 'ACTION', {
+      txHash: '0xsupply345',
+      protocol: 'marginfi',
+      asset: 'SOL',
+      amount: 3,
+    }),
+    createTestAction('BORROW_ASSET', 'Borrow from lending protocol', 'ACTION', {
+      txHash: '0xborrow678',
+      protocol: 'marginfi',
+      asset: 'USDC',
+      amount: 200,
+    }),
+    createTestAction('REPAY_LOAN', 'Repay loan', 'ACTION', {
+      txHash: '0xrepay901',
+      protocol: 'solend',
+      asset: 'USDC',
+      amount: 100,
+    }),
+    createTestAction('WITHDRAW_COLLATERAL', 'Withdraw collateral', 'ACTION', {
+      txHash: '0xwithdraw234',
+      protocol: 'marginfi',
+      asset: 'SOL',
+      amount: 2,
+    }),
+
+    // Liquidity provision
+    createTestAction('ADD_LIQUIDITY', 'Add liquidity to pool', 'ACTION', {
+      txHash: '0xadd567',
+      dex: 'orca',
+      pool: 'SOL-USDC',
+      amountA: 2,
+      amountB: 300,
+      lpTokens: 10.5,
+    }),
+    createTestAction('REMOVE_LIQUIDITY', 'Remove liquidity from pool', 'ACTION', {
+      txHash: '0xremove890',
+      dex: 'raydium',
+      pool: 'BONK-SOL',
+      percentage: 100,
+    }),
+    createTestAction('CLAIM_LP_FEES', 'Claim LP fees', 'ACTION', {
+      txHash: '0xclaimfees123',
+      fees: { SOL: 0.08, USDC: 12 },
+      rewards: { ORCA: 15 },
+    }),
+    createTestAction('MIGRATE_LIQUIDITY', 'Migrate LP position', 'ACTION', {
+      txHash: '0xmigrate456',
+      fromDex: 'orca',
+      toDex: 'raydium',
+      pool: 'SOL-USDC',
+    }),
+
+    // NFT operations
+    createTestAction('LIST_NFT_FOR_SALE', 'List NFT on marketplace', 'ACTION', {
+      txHash: '0xlist789',
+      marketplace: 'tensor',
+      nftMint: 'nft123',
+      price: 0.5,
+    }),
+    createTestAction('BUY_NFT', 'Buy NFT from marketplace', 'ACTION', {
+      txHash: '0xbuy012',
+      marketplace: 'tensor',
+      nftMint: 'madlads1337',
+      price: 85,
+    }),
+    createTestAction('CANCEL_NFT_LISTING', 'Cancel NFT listing', 'ACTION', {
+      txHash: '0xcancel345',
+      marketplace: 'magic-eden',
+      nftMint: 'tensorian9876',
+    }),
+    createTestAction('MAKE_NFT_OFFER', 'Make offer on NFT', 'ACTION', {
+      txHash: '0xoffer678',
+      marketplace: 'tensor',
+      nftMint: 'smb442',
+      offerPrice: 75,
+    }),
+
+    // Advanced DeFi
+    createTestAction('FLASH_LOAN_ARBITRAGE', 'Execute flash loan arb', 'ACTION', {
+      txHash: '0xflash901',
+      borrowed: 10000,
+      profit: 125,
+    }),
+    createTestAction('LEVERAGE_POSITION', 'Open leveraged position', 'ACTION', {
+      txHash: '0xlev234',
+      protocol: 'drift',
+      asset: 'SOL',
+      leverage: 3,
+      collateral: 1000,
+    }),
+    createTestAction('CLOSE_LEVERAGE', 'Close leveraged position', 'ACTION', {
+      txHash: '0xclose567',
+      protocol: 'drift',
+      pnl: 150,
+    }),
+    createTestAction('HEDGE_POSITION', 'Hedge with derivatives', 'ACTION', {
+      txHash: '0xhedge890',
+      protocol: 'zeta',
+      position: 'short-JUP-2x',
+      amount: 5,
+    }),
+  ];
+
+  additionalActionActions.forEach((action) => runtime.registerAction(action));
+
+  logger.info(`[TestRuntime] Registered ${2 + additionalActionActions.length} ACTION actions`);
 }
 
 /**

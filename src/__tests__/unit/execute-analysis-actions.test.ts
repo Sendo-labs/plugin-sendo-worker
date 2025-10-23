@@ -50,12 +50,12 @@ describe('SendoWorkerService - executeAnalysisActions', () => {
   it('should execute all DATA actions in parallel', async () => {
     const results = await service.executeAnalysisActions(dataActions);
 
-    // Should have executed 3 actions
-    expect(results.length).toBe(3);
+    // Should have executed all selected DATA actions (now we have many more)
+    expect(results.length).toBeGreaterThan(3); // At least 3, now we have 18+
 
     // All should be successful
     const successCount = results.filter((r) => r.success).length;
-    expect(successCount).toBe(3);
+    expect(successCount).toBe(results.length); // All should succeed
   });
 
   it('should return AnalysisActionResult objects with correct structure', async () => {

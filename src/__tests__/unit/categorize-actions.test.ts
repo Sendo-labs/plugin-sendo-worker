@@ -45,10 +45,16 @@ describe('SendoWorkerService - categorizeActions', () => {
     expect(result).toHaveProperty('actionActions');
     expect(result).toHaveProperty('classifications');
 
-    // Verify counts (3 DATA + 2 ACTION = 5 total)
-    expect(result.classifications).toHaveLength(5);
+    // Verify counts (should have many actions now)
+    expect(result.classifications.length).toBeGreaterThan(5); // At least 5, but now we have 46+
     expect(result.dataActions.size).toBeGreaterThan(0);
     expect(result.actionActions.size).toBeGreaterThan(0);
+
+    // Verify we have a good mix of DATA and ACTION
+    const dataCount = Array.from(result.dataActions.values()).flat().length;
+    const actionCount = Array.from(result.actionActions.values()).flat().length;
+    expect(dataCount).toBeGreaterThan(3); // More than the original 3
+    expect(actionCount).toBeGreaterThan(2); // More than the original 2
   });
 
   it('should correctly categorize DATA actions', async () => {

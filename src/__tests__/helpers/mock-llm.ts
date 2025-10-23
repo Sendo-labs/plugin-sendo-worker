@@ -144,12 +144,20 @@ export function setupLLMMock(runtime: IAgentRuntime, options: MockLLMOptions = {
         }
 
         // For DATA actions, check for context clues
-        if (prompt.includes('low') && prompt.includes('SOL')) {
-          return Promise.resolve(relevantActionsFixtures.lowSolBalance);
+        if (prompt.includes('DeFi') || prompt.includes('staking') || prompt.includes('lending')) {
+          return Promise.resolve(relevantActionsFixtures.defiAnalysis);
         }
-        if (prompt.includes('high') && prompt.includes('USDC')) {
-          return Promise.resolve(relevantActionsFixtures.highUsdcBalance);
+        if (prompt.includes('risk') || prompt.includes('health')) {
+          return Promise.resolve(relevantActionsFixtures.riskFocused);
         }
+        if (prompt.includes('NFT') || prompt.includes('nft')) {
+          return Promise.resolve(relevantActionsFixtures.nftAnalysis);
+        }
+        if (prompt.includes('trading') || prompt.includes('price') || prompt.includes('liquidity')) {
+          return Promise.resolve(relevantActionsFixtures.tradingOpportunities);
+        }
+
+        // Default - basic analysis
         return Promise.resolve(relevantActionsFixtures.default);
       }
 
