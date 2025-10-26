@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm';
 import {
-  pgTable,
   varchar,
   uuid,
   text,
@@ -8,14 +7,31 @@ import {
   jsonb,
   timestamp,
   index,
+  smallint,
 } from 'drizzle-orm/pg-core';
-import { analysisResults } from './analysis-results';
+import { analysisResults, sendoWorkerSchema } from './analysis-results';
+
+/**
+ * Priority levels as numeric values for proper sorting
+ * 3 = high, 2 = medium, 1 = low
+ */
+export const PRIORITY_VALUES = {
+  high: 3,
+  medium: 2,
+  low: 1,
+} as const;
+
+export const PRIORITY_NAMES = {
+  3: 'high',
+  2: 'medium',
+  1: 'low',
+} as const;
 
 /**
  * Recommended actions storage table
  * Stores recommended actions from analyses
  */
-export const recommendedActions = pgTable(
+export const recommendedActions = sendoWorkerSchema.table(
   'recommended_actions',
   {
     id: varchar('id', { length: 255 }).primaryKey(),
@@ -28,19 +44,18 @@ export const recommendedActions = pgTable(
     pluginName: varchar('plugin_name', { length: 255 }).notNull(),
 
     // Priority and confidence
-    priority: varchar('priority', { length: 50 }).notNull(), // 'high' | 'medium' | 'low'
+    priority: smallint('priority').notNull(), // 3=high, 2=medium, 1=low
     reasoning: text('reasoning').notNull(),
     confidence: decimal('confidence', { precision: 3, scale: 2 }).notNull(),
 
     // Trigger
     triggerMessage: text('trigger_message').notNull(),
 
-    // Parameters (optional JSON)
+    // Parameters (optional JSON) - includes estimatedGas
     params: jsonb('params'),
 
     // UI metadata
     estimatedImpact: varchar('estimated_impact', { length: 255 }),
-    estimatedGas: varchar('estimated_gas', { length: 255 }),
 
     // State and execution
     status: varchar('status', { length: 50 }).notNull().default('pending'),
@@ -50,6 +65,7 @@ export const recommendedActions = pgTable(
     // Result (saved by Frontend)
     result: jsonb('result'),
     error: text('error'),
+    errorType: varchar('error_type', { length: 50 }), // 'initialization' | 'execution'
 
     createdAt: timestamp('created_at').default(sql`now()`).notNull(),
   },
