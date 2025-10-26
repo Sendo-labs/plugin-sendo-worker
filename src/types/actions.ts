@@ -24,10 +24,9 @@ export interface RecommendedAction {
 
   // UI metadata
   estimatedImpact?: string;
-  estimatedGas?: string;
 
   // State and execution
-  status: 'pending' | 'accepted' | 'rejected' | 'executing' | 'completed' | 'failed';
+  status: 'pending' | 'rejected' | 'executing' | 'completed' | 'failed';
   decidedAt?: string;
   executedAt?: string;
 
@@ -38,6 +37,7 @@ export interface RecommendedAction {
     timestamp: string;
   };
   error?: string;
+  errorType?: 'initialization' | 'execution';
 
   createdAt: string;
 }
@@ -48,17 +48,4 @@ export interface RecommendedAction {
 export interface ActionDecision {
   actionId: string;
   decision: 'accept' | 'reject';
-}
-
-/**
- * Result data for updating an action after execution
- */
-export interface ActionResultUpdate {
-  status: 'executing' | 'completed' | 'failed';
-  result?: {
-    text: string;
-    data?: any;
-    timestamp: string;
-  };
-  error?: string;
 }

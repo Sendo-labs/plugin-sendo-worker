@@ -6,4 +6,4 @@
  */
 
 export { analysisResults } from './analysis-results';
-export { recommendedActions } from './recommended-actions';
+export { recommendedActions, PRIORITY_VALUES, PRIORITY_NAMES } from './recommended-actions';

@@ -1,7 +1,7 @@
 {
   "name": "@sendo-labs/plugin-sendo-worker",
   "description": "Sendo Worker plugin for ElizaOS - provides worker task management and execution",
-  "version": "1.1.3",
+  "version": "1.1.3-beta.1",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -27,7 +27,7 @@
     }
   },
   "dependencies": {
-    "@elizaos/core": "^1.6.1",
+    "@elizaos/core": "^1.6.3",
     "@types/pg": "^8.15.5",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.44.6",
@@ -37,7 +37,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.2.5",
     "@electric-sql/pglite": "^0.3.11",
-    "@elizaos/cli": "^1.6.1",
+    "@elizaos/plugin-openai": "^1.5.16",
+    "@elizaos/plugin-openrouter": "^1.5.14",
+    "@types/bun": "^1.3.0",
     "@types/node": "^24.7.0",
     "prettier": "3.5.3",
     "tsup": "8.5.0",
@@ -52,6 +54,10 @@
     "format:check": "prettier --check ./src",
     "check": "biome check --write .",
     "test": "elizaos test",
+    "test:unit": "bun test --bail src/__tests__/unit/categorize-actions.test.ts && bun test --bail src/__tests__/unit/collect-provider-data.test.ts && bun test --bail src/__tests__/unit/execute-analysis-actions.test.ts && bun test --bail src/__tests__/unit/select-relevant-data-actions.test.ts && bun test --bail src/__tests__/unit/generate-analysis.test.ts && bun test --bail src/__tests__/unit/generate-recommendations.test.ts && bun test --bail src/__tests__/unit/save-analysis.test.ts && bun test --bail src/__tests__/unit/process-decisions.test.ts && bun test --bail src/__tests__/unit/db-getters.test.ts",
+    "test:integration": "bun test --bail src/__tests__/integration/run-analysis.test.ts && bun test --bail src/__tests__/integration/api-routes.test.ts",
+    "test:integration:llm": "USE_REAL_LLM=true bun run test:integration",
+    "test:all": "bun run test:unit && bun run test:integration",
     "publish": "elizaos plugin publish",
     "seed": "bun run scripts/seed-data.ts",
     "db:clean": "bun run scripts/clean-data.ts"

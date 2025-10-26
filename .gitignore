@@ -38,6 +38,7 @@ Thumbs.db
 # Testing
 coverage/
 .nyc_output/
+.eliza-test/
 
 # Temporary files
 *.tmp

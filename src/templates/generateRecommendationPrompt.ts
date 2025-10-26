@@ -66,17 +66,23 @@ Generate a complete recommendation for this specific action based on the analysi
 
 3. **Confidence:** Rate 0.0 to 1.0 based on how well this addresses the analysis
 
-4. **Trigger Message:** 🚨 **CRITICAL** 🚨
-   - Must closely match the example message patterns above
-   - Use the same structure, keywords, and format
-   - Only replace specific values (amounts, tokens) with data from analysis
-   - This exact message will be used to trigger the action
+4. **Trigger Message:**
+   - MUST include ALL important parameter values (amounts, tokens, destination addresses, protocols, validators, etc.)
+   - DO NOT mention the source wallet (actions always use the agent's wallet)
+   - Closely match the example message patterns shown above
+   - Use natural language as a clear action phrase (NOT a list, NOT reasoning)
+   - Include specific values from the analysis, following the structure of the examples
 
-5. **Parameters:** Relevant key-value pairs (tokens, amounts, addresses, etc.)
+5. **Parameters:** Extract ALL structured parameters as key-value pairs
+   - Use an array of objects with "key" and "value" fields
+   - Include the SAME values as in triggerMessage but in structured format
+   - Include: amounts, tokens, addresses, protocols, validators, slippage, prices, etc.
+   - Include "estimatedGas" parameter with gas estimate (e.g. "0.00005 SOL" or "Not applicable")
+   - Example: [{"key": "amount", "value": 250}, {"key": "token", "value": "SOL"}, {"key": "estimatedGas", "value": "0.00005 SOL"}]
+   - Values can be strings, numbers, or booleans
+   - Use empty array [] if no parameters needed
 
 6. **Estimated Impact:** Expected outcome in 1 sentence
-
-7. **Estimated Gas:** Rough estimate or "Not applicable"
 
 ## Response Format
 
@@ -87,8 +93,12 @@ Generate a complete recommendation for this specific action based on the analysi
   "reasoning": "...",
   "confidence": 0.85,
   "triggerMessage": "Message matching example patterns...",
-  "params": { "key": "value" },
-  "estimatedImpact": "...",
-  "estimatedGas": "..."
+  "params": [
+    {"key": "amount", "value": 250},
+    {"key": "token", "value": "SOL"},
+    {"key": "slippage", "value": 0.01},
+    {"key": "estimatedGas", "value": "0.00005 SOL"}
+  ],
+  "estimatedImpact": "..."
 }`;
 };

@@ -57,16 +57,16 @@ export const generateRecommendationSchema = z.object({
     .describe('Confidence in this recommendation'),
   triggerMessage: z
     .string()
-    .describe('Exact message to send to trigger this action'),
+    .describe('Exact message to send to trigger this action - include all parameters'),
   params: z
-    .record(z.string(), z.any())
-    .optional()
-    .describe('Parameters for the action'),
+    .array(
+      z.object({
+        key: z.string().describe('Parameter name'),
+        value: z.union([z.string(), z.number(), z.boolean()]).describe('Parameter value'),
+      })
+    )
+    .describe('Action parameters as key-value pairs. Include: amounts, tokens, protocols, validators, gas estimates, etc. Use empty array [] if no params. Example: [{key: "amount", value: 250}, {key: "token", value: "SOL"}, {key: "estimatedGas", value: "0.00005 SOL"}]'),
   estimatedImpact: z.string().describe('Expected outcome of the action'),
-  estimatedGas: z
-    .string()
-    .optional()
-    .describe('Gas estimate for blockchain transactions'),
 });
 
 export type GenerateRecommendationResponse = z.infer<
