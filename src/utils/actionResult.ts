@@ -1,17 +1,14 @@
-import type { ActionResult, IAgentRuntime, AgentRuntime, UUID } from '@elizaos/core';
+import type { ActionResult, IAgentRuntime, UUID } from '@elizaos/core';
 
 /**
- * Retrieve ActionResult from runtime's stateCache
- * The stateCache is not in IAgentRuntime interface but exists on AgentRuntime implementation
+ * Retrieve ActionResult from runtime using the official getActionResults method
+ * Returns the first action result for the given message ID
  */
 export function getActionResultFromCache(
   runtime: IAgentRuntime,
   messageId: UUID
 ): ActionResult | null {
-  // Cast to AgentRuntime to access stateCache (implementation detail)
-  const runtimeImpl = runtime as unknown as AgentRuntime;
-  const cachedState = runtimeImpl.stateCache?.get(`${messageId}_action_results`);
-  const actionResults = (cachedState?.data?.actionResults as ActionResult[]) || [];
+  const actionResults = runtime.getActionResults(messageId);
   return actionResults.length > 0 ? actionResults[0] : null;
 }
 
