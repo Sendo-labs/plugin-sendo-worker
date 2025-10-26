@@ -553,7 +553,7 @@ export const recommendationFixtures: Record<string, {
     reasoning: 'Portfolio drift detected - rebalance from current 40/60 SOL/USDC to target 50/50 allocation',
     confidence: 0.75,
     triggerMessage: 'Rebalance portfolio to 50% SOL and 50% USDC allocation',
-    params: { targetAllocation: { SOL: 0.5, USDC: 0.5 } },
+    params: [{ key: 'targetAllocation', value: { SOL: 0.5, USDC: 0.5 } }],
     estimatedImpact: 'Restore target allocation, swap 200 USDC → SOL',
     estimatedGas: '~0.00002 SOL',
   },

@@ -13,6 +13,7 @@ import {
   type IAgentRuntime,
   type Character,
   type ActionResult,
+  type HandlerOptions,
   logger,
 } from '@elizaos/core';
 import { v4 as uuidv4 } from 'uuid';
@@ -130,7 +131,7 @@ function createTestAction(
     similes: [],
     examples: [],
     validate: async () => true,
-    handler: async (_runtime: any, _message: any, _state: any, _options: any, callback: any): Promise<ActionResult> => {
+    handler: async (_runtime: any, _message: any, _state: any, _options?: HandlerOptions, callback?: any): Promise<ActionResult> => {
       const result: ActionResult = {
         success: true,
         data: mockData,
