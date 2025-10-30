@@ -1,18 +1,18 @@
 /**
- * Unit tests for SendoWorkerService.categorizeActions()
+ * Unit tests for ActionCategorizer
  *
  * Tests action categorization with REAL runtime and actions
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { ActionCategorizer } from '../../services/analysis';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import { setupLLMMock } from '../helpers/mock-llm';
-import type { IAgentRuntime, Action } from '@elizaos/core';
+import type { IAgentRuntime } from '@elizaos/core';
 
-describe('SendoWorkerService - categorizeActions', () => {
+describe('ActionCategorizer - categorize', () => {
   let runtime: IAgentRuntime;
-  let service: SendoWorkerService;
+  let categorizer: ActionCategorizer;
 
   beforeAll(async () => {
     // Create REAL runtime with test actions
@@ -22,9 +22,8 @@ describe('SendoWorkerService - categorizeActions', () => {
       withActionActions: true, // 2 ACTION actions
     });
 
-    // Create service
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    // Create categorizer
+    categorizer = new ActionCategorizer(runtime);
 
     // Setup LLM mock using fixture-based system
     setupLLMMock(runtime, {
@@ -38,7 +37,7 @@ describe('SendoWorkerService - categorizeActions', () => {
   });
 
   it('should categorize all available actions', async () => {
-    const result = await service.categorizeActions();
+    const result = await categorizer.categorize();
 
     // Verify structure
     expect(result).toHaveProperty('dataActions');
@@ -58,12 +57,12 @@ describe('SendoWorkerService - categorizeActions', () => {
   });
 
   it('should correctly categorize DATA actions', async () => {
-    const result = await service.categorizeActions();
+    const result = await categorizer.categorize();
 
     // Check DATA actions
     const dataActionNames = new Set<string>();
     for (const actions of result.dataActions.values()) {
-      actions.forEach((action) => dataActionNames.add(action.name));
+      actions.forEach((action: any) => dataActionNames.add(action.name));
     }
 
     expect(dataActionNames.has('GET_WALLET_BALANCE')).toBe(true);
@@ -72,12 +71,12 @@ describe('SendoWorkerService - categorizeActions', () => {
   });
 
   it('should correctly categorize ACTION actions', async () => {
-    const result = await service.categorizeActions();
+    const result = await categorizer.categorize();
 
     // Check ACTION actions
     const actionActionNames = new Set<string>();
     for (const actions of result.actionActions.values()) {
-      actions.forEach((action) => actionActionNames.add(action.name));
+      actions.forEach((action: any) => actionActionNames.add(action.name));
     }
 
     expect(actionActionNames.has('EXECUTE_SWAP')).toBe(true);
@@ -85,7 +84,7 @@ describe('SendoWorkerService - categorizeActions', () => {
   });
 
   it('should group actions by type', async () => {
-    const result = await service.categorizeActions();
+    const result = await categorizer.categorize();
 
     // DATA actions should be grouped
     expect(result.dataActions.size).toBeGreaterThan(0);
@@ -106,7 +105,7 @@ describe('SendoWorkerService - categorizeActions', () => {
   });
 
   it('should include classification metadata', async () => {
-    const result = await service.categorizeActions();
+    const result = await categorizer.categorize();
 
     // Check first classification has all required fields
     const classification = result.classifications[0];
@@ -126,13 +125,12 @@ describe('SendoWorkerService - categorizeActions', () => {
   it('should handle empty actions gracefully', async () => {
     // Create runtime with NO actions
     const emptyRuntime = await createTestRuntime({ testId: 'empty-test' });
-    const emptyService = new SendoWorkerService(emptyRuntime);
-    await emptyService.initialize(emptyRuntime);
+    const emptyCategorizer = new ActionCategorizer(emptyRuntime);
 
     // Setup same LLM mock
     setupLLMMock(emptyRuntime, { useFixtures: true });
 
-    const result = await emptyService.categorizeActions();
+    const result = await emptyCategorizer.categorize();
 
     expect(result.classifications).toHaveLength(0);
     expect(result.dataActions.size).toBe(0);

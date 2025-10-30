@@ -23,8 +23,7 @@ describe('SendoWorkerService - DB Getters', () => {
       testId: 'db-getters-test',
     });
 
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    service = await runtime.getServiceLoadPromise(SendoWorkerService.serviceType as any) as SendoWorkerService;
 
     // Create test data
     const db = (runtime as any).db;

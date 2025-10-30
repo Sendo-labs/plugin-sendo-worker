@@ -1,19 +1,19 @@
 /**
- * Unit tests for SendoWorkerService.generateAnalysis()
+ * Unit tests for AnalysisGenerator.generate()
  *
  * Tests LLM-based analysis generation from action results and provider data
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { AnalysisGenerator } from '../../services/analysis';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime } from '@elizaos/core';
 import type { AnalysisActionResult, ProviderDataResult } from '../../types/index';
 
-describe('SendoWorkerService - generateAnalysis', () => {
+describe('AnalysisGenerator - generate', () => {
   let runtime: IAgentRuntime;
-  let service: SendoWorkerService;
+  let generator: AnalysisGenerator;
 
   beforeAll(async () => {
     // Create REAL runtime
@@ -21,9 +21,8 @@ describe('SendoWorkerService - generateAnalysis', () => {
       testId: 'generate-analysis-test',
     });
 
-    // Create service
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    // Create generator
+    generator = new AnalysisGenerator(runtime);
 
     // Setup LLM mock using fixtures
     setupLLMMock(runtime, { useFixtures: true });
@@ -44,7 +43,7 @@ describe('SendoWorkerService - generateAnalysis', () => {
 
     const providerData: ProviderDataResult[] = [];
 
-    const analysis = await service.generateAnalysis(analysisResults, providerData);
+    const analysis = await generator.generate(analysisResults, providerData);
 
     expect(analysis).toHaveProperty('walletOverview');
     expect(analysis).toHaveProperty('marketConditions');
@@ -100,7 +99,7 @@ describe('SendoWorkerService - generateAnalysis', () => {
 
     const providerData: ProviderDataResult[] = [];
 
-    await service.generateAnalysis(analysisResults, providerData);
+    await generator.generate(analysisResults, providerData);
 
     // Prompt should include both action results
     expect(capturedPrompt).toContain('GET_WALLET_BALANCE');
@@ -136,7 +135,7 @@ describe('SendoWorkerService - generateAnalysis', () => {
       },
     ];
 
-    await service.generateAnalysis(analysisResults, providerData);
+    await generator.generate(analysisResults, providerData);
 
     // Prompt should include provider data
     expect(capturedPrompt).toContain('walletContext');
@@ -172,7 +171,7 @@ describe('SendoWorkerService - generateAnalysis', () => {
 
     const providerData: ProviderDataResult[] = [];
 
-    const analysis = await service.generateAnalysis(analysisResults, providerData);
+    const analysis = await generator.generate(analysisResults, providerData);
 
     // Should still generate analysis
     expect(analysis).toHaveProperty('walletOverview');
@@ -186,7 +185,7 @@ describe('SendoWorkerService - generateAnalysis', () => {
     const analysisResults: AnalysisActionResult[] = [];
     const providerData: ProviderDataResult[] = [];
 
-    const analysis = await service.generateAnalysis(analysisResults, providerData);
+    const analysis = await generator.generate(analysisResults, providerData);
 
     // Should still generate all sections
     expect(analysis).toHaveProperty('walletOverview');

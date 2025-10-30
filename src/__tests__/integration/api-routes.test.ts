@@ -32,8 +32,8 @@ describe('API Routes - Integration Tests', () => {
       limitActions: useRealLLM ? 10 : undefined,
     });
 
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    // Get service via service loading mechanism
+    service = await runtime.getServiceLoadPromise(SendoWorkerService.serviceType as any) as SendoWorkerService;
 
     // Setup LLM mock using fixture-based system
     setupLLMMock(runtime, { useFixtures: true });

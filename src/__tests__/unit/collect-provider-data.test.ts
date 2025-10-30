@@ -1,17 +1,17 @@
 /**
- * Unit tests for SendoWorkerService collectProviderData
+ * Unit tests for ProviderCollector
  *
  * Tests the collection of data from registered providers
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { ProviderCollector } from '../../services/data';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import type { IAgentRuntime } from '@elizaos/core';
 
-describe('SendoWorkerService - collectProviderData', () => {
+describe('ProviderCollector - collect', () => {
   let runtime: IAgentRuntime;
-  let service: SendoWorkerService;
+  let collector: ProviderCollector;
 
   beforeAll(async () => {
     // Create runtime with providers
@@ -20,8 +20,7 @@ describe('SendoWorkerService - collectProviderData', () => {
       withProviders: true,
     });
 
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    collector = new ProviderCollector(runtime);
   });
 
   afterAll(async () => {
@@ -29,7 +28,7 @@ describe('SendoWorkerService - collectProviderData', () => {
   });
 
   it('should collect data from all registered providers', async () => {
-    const results = await service.collectProviderData();
+    const results = await collector.collect();
 
     expect(results).toBeDefined();
     expect(Array.isArray(results)).toBe(true);
@@ -37,7 +36,7 @@ describe('SendoWorkerService - collectProviderData', () => {
   });
 
   it('should include provider name, data, and timestamp', async () => {
-    const results = await service.collectProviderData();
+    const results = await collector.collect();
 
     for (const result of results) {
       expect(result).toHaveProperty('providerName');
@@ -49,7 +48,7 @@ describe('SendoWorkerService - collectProviderData', () => {
   });
 
   it('should return valid ISO timestamp', async () => {
-    const results = await service.collectProviderData();
+    const results = await collector.collect();
 
     if (results.length > 0) {
       const timestamp = results[0].timestamp;
@@ -65,10 +64,8 @@ describe('SendoWorkerService - collectProviderData', () => {
       withProviders: false,
     });
 
-    const emptyService = new SendoWorkerService(emptyRuntime);
-    await emptyService.initialize(emptyRuntime);
-
-    const results = await emptyService.collectProviderData();
+    const emptyCollector = new ProviderCollector(emptyRuntime);
+    const results = await emptyCollector.collect();
 
     expect(results).toBeDefined();
     expect(Array.isArray(results)).toBe(true);
@@ -78,28 +75,28 @@ describe('SendoWorkerService - collectProviderData', () => {
   });
 
   it('should handle provider errors gracefully', async () => {
-    // This test ensures collectProviderData doesn't throw if a provider fails
+    // This test ensures collect doesn't throw if a provider fails
     // The runtime's composeState should handle errors internally
 
-    await expect(service.collectProviderData()).resolves.toBeDefined();
+    await expect(collector.collect()).resolves.toBeDefined();
   });
 
   it('should collect data from multiple providers', async () => {
-    const results = await service.collectProviderData();
+    const results = await collector.collect();
 
     // We registered 2 providers in the test runtime
     expect(results.length).toBeGreaterThanOrEqual(2);
 
     // Check that provider names are unique
-    const providerNames = results.map(r => r.providerName);
+    const providerNames = results.map((r: any) => r.providerName);
     const uniqueNames = new Set(providerNames);
     expect(uniqueNames.size).toBe(providerNames.length);
   });
 
   it('should include expected test providers', async () => {
-    const results = await service.collectProviderData();
+    const results = await collector.collect();
 
-    const providerNames = results.map(r => r.providerName);
+    const providerNames = results.map((r: any) => r.providerName);
 
     // Test runtime registers walletContext and timeContext providers
     expect(providerNames).toContain('walletContext');
@@ -107,15 +104,15 @@ describe('SendoWorkerService - collectProviderData', () => {
   });
 
   it('should return consistent data structure on multiple calls', async () => {
-    const results1 = await service.collectProviderData();
-    const results2 = await service.collectProviderData();
+    const results1 = await collector.collect();
+    const results2 = await collector.collect();
 
     // Same number of providers
     expect(results1.length).toBe(results2.length);
 
     // Same provider names (order may differ)
-    const names1 = results1.map(r => r.providerName).sort();
-    const names2 = results2.map(r => r.providerName).sort();
+    const names1 = results1.map((r: any) => r.providerName).sort();
+    const names2 = results2.map((r: any) => r.providerName).sort();
     expect(names1).toEqual(names2);
   });
 });
