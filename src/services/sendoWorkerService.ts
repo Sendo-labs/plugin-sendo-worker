@@ -11,6 +11,7 @@ import type {
   ActionActionType,
 } from '../types/index';
 import { WorldManager } from '../utils/worldManager';
+import { ensureSolanaWallet } from '../utils/walletManager.js';
 import { ProviderCollector, DataSelector, DataExecutor } from './data';
 import { ActionCategorizer, AnalysisGenerator } from './analysis';
 import { RecommendationGenerator, DecisionProcessor } from './recommendation';
@@ -62,6 +63,14 @@ export class SendoWorkerService extends Service {
 
     // Ensure agent's permanent world exists
     await this.worldManager.ensureAgentWorldExists();
+
+    // Ensure Solana wallet exists (required for analysis)
+    const solanaService = runtime.getService('chain_solana');
+    if (solanaService) {
+      await ensureSolanaWallet(runtime);
+    } else {
+      logger.warn('[SendoWorkerService] Skipping wallet creation: Solana service not available');
+    }
 
     logger.info('[SendoWorkerService] Initialized successfully');
   }

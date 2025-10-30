@@ -22,7 +22,7 @@ describe('SendoWorkerService - processDecisions', () => {
       testId: 'process-decisions-test',
     });
 
-    service = await runtime.getServiceLoadPromise("sendo_worker") as SendoWorkerService;
+    service = await runtime.getServiceLoadPromise(SendoWorkerService.serviceType as any) as SendoWorkerService;
 
     // Create test data directly in DB
     const db = (runtime as any).db;
