@@ -23,8 +23,7 @@ describe('SendoWorkerService - saveAnalysis (DB persistence)', () => {
     });
 
     // Create service
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    service = await runtime.getServiceLoadPromise(SendoWorkerService.serviceType as any) as SendoWorkerService;
 
     // Setup LLM mock using fixture-based system
     setupLLMMock(runtime, { useFixtures: true });

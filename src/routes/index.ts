@@ -1,6 +1,7 @@
 import type { Route, IAgentRuntime } from '@elizaos/core';
 import { logger } from '@elizaos/core';
 import { SendoWorkerService } from '../services/sendoWorkerService.js';
+import { checkWalletBalance } from '../utils/walletManager.js';
 
 // ============================================
 // HELPER FUNCTIONS
@@ -141,8 +142,10 @@ async function getActionHandler(req: any, res: any, runtime: IAgentRuntime): Pro
 /**
  * POST /worker/analysis
  * Run a complete analysis for the current agent
+ * Requires wallet with minimum 0.01 SOL balance
+ * Returns immediately with 201 - analysis runs in background
  */
-async function runAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): Promise<void> {
+async function runAnalysisHandler(_req: any, res: any, runtime: IAgentRuntime): Promise<void> {
   const agentId = runtime.agentId;
   const workerService = runtime.getService<SendoWorkerService>('sendo_worker');
 
@@ -150,18 +153,43 @@ async function runAnalysisHandler(req: any, res: any, runtime: IAgentRuntime): P
     return sendError(res, 500, 'SERVICE_NOT_FOUND', 'SendoWorkerService not found');
   }
 
+  // Check wallet balance before running analysis
   try {
-    // Run complete analysis workflow
-    const result = await workerService.runAnalysis(agentId);
+    const walletStatus = await checkWalletBalance(runtime);
 
-    sendSuccess(res, {
-      message: 'Analysis completed successfully',
-      analysis: result,
-    }, 201);
-  } catch (error: any) {
-    logger.error('[Route] Failed to run analysis:', error);
-    sendError(res, 500, 'ANALYSIS_ERROR', 'Failed to run analysis', error.message);
+    if (!walletStatus.hasBalance) {
+      return sendError(
+        res,
+        402,
+        'INSUFFICIENT_BALANCE',
+        `Wallet has insufficient balance. Current: ${walletStatus.balance} SOL, Required: 0.01 SOL minimum`,
+        `Please fund wallet: ${walletStatus.publicKey}`
+      );
+    }
+
+    logger.info(`[Route] Wallet balance check passed: ${walletStatus.balance} SOL (${walletStatus.publicKey})`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('[Route] Failed to check wallet balance:', errorMessage);
+    return sendError(res, 500, 'WALLET_CHECK_FAILED', 'Failed to verify wallet balance', errorMessage);
   }
+
+  // Return immediately with 201 - analysis runs in background
+  sendSuccess(res, {
+    message: 'Analysis started successfully',
+    status: 'processing',
+    agentId,
+  }, 201);
+
+  // Run analysis in background (don't await)
+  workerService.runAnalysis(agentId)
+    .then((result) => {
+      logger.info(`[Route] ✅ Background analysis completed for agent ${agentId}: ${result.id}`);
+    })
+    .catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`[Route] ❌ Background analysis failed for agent ${agentId}:`, errorMessage);
+    });
 }
 
 /**

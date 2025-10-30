@@ -1,0 +1,1 @@
+export { AnalysisRepository } from './repository';

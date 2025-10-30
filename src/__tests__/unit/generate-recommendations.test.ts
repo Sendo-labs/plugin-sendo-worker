@@ -1,19 +1,19 @@
 /**
- * Unit tests for SendoWorkerService.generateRecommendations()
+ * Unit tests for RecommendationGenerator.generate()
  *
  * Tests LLM-based recommendation generation for ACTION actions
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { RecommendationGenerator } from '../../services/recommendation';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime, Action } from '@elizaos/core';
 import type { ActionActionType } from '../../types/index';
 
-describe('SendoWorkerService - generateRecommendations', () => {
+describe('RecommendationGenerator - generate', () => {
   let runtime: IAgentRuntime;
-  let service: SendoWorkerService;
+  let generator: RecommendationGenerator;
   let actionActions: Map<ActionActionType, Action[]>;
 
   beforeAll(async () => {
@@ -23,9 +23,8 @@ describe('SendoWorkerService - generateRecommendations', () => {
       withActionActions: true, // 2 ACTION actions
     });
 
-    // Create service
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    // Create generator
+    generator = new RecommendationGenerator(runtime);
 
     // Prepare actionActions map
     const actions = Array.from(runtime.actions.values());
@@ -55,7 +54,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
     };
 
     const analysisId = crypto.randomUUID();
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       analysisId,
       analysis,
       actionActions
@@ -99,7 +98,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
       opportunities: 'Test',
     };
 
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       crypto.randomUUID(),
       analysis,
       actionActions
@@ -128,8 +127,8 @@ describe('SendoWorkerService - generateRecommendations', () => {
       opportunities: 'Test',
     };
 
-    await service.generateRecommendations(
-      crypto.randomUUID(),
+    await generator.generate(
+      crypto.randomUUID() as any,
       analysis,
       actionActions
     );
@@ -172,7 +171,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
       opportunities: 'Test',
     };
 
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       crypto.randomUUID(),
       analysis,
       actionActions
@@ -180,7 +179,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
 
     // Should filter out null (failed) recommendations
     expect(recommendations.length).toBeGreaterThan(0);
-    expect(recommendations.every((r) => r !== null)).toBe(true);
+    expect(recommendations.every((r: any) => r !== null)).toBe(true);
   });
 
   it('should handle action type processing errors gracefully', async () => {
@@ -201,7 +200,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
       opportunities: 'Test',
     };
 
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       crypto.randomUUID(),
       analysis,
       actionActions
@@ -223,7 +222,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
     };
 
     const analysisId = crypto.randomUUID();
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       analysisId,
       analysis,
       actionActions
@@ -257,7 +256,7 @@ describe('SendoWorkerService - generateRecommendations', () => {
       opportunities: 'Test',
     };
 
-    const recommendations = await service.generateRecommendations(
+    const recommendations = await generator.generate(
       crypto.randomUUID(),
       analysis,
       emptyMap

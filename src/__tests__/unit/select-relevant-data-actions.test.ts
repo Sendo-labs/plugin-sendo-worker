@@ -1,19 +1,19 @@
 /**
- * Unit tests for SendoWorkerService.selectRelevantDataActions()
+ * Unit tests for DataSelector.select()
  *
  * Tests LLM-based selection of relevant DATA actions
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { SendoWorkerService } from '../../services/sendoWorkerService';
+import { DataSelector } from '../../services/data';
 import { createTestRuntime, cleanupTestRuntime } from '../helpers/test-runtime';
 import { setupLLMMock } from '../helpers/mock-llm';
 import type { IAgentRuntime, Action } from '@elizaos/core';
 import type { ProviderDataResult } from '../../types/index';
 
-describe('SendoWorkerService - selectRelevantDataActions', () => {
+describe('DataSelector - select', () => {
   let runtime: IAgentRuntime;
-  let service: SendoWorkerService;
+  let selector: DataSelector;
   let dataActions: Map<string, Action[]>;
 
   beforeAll(async () => {
@@ -23,9 +23,8 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
       withDataActions: true, // 3 DATA actions
     });
 
-    // Create service
-    service = new SendoWorkerService(runtime);
-    await service.initialize(runtime);
+    // Create selector
+    selector = new DataSelector(runtime);
 
     // Prepare dataActions map (grouped by type)
     dataActions = new Map<string, Action[]>();
@@ -59,11 +58,11 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
       },
     ];
 
-    const selected = await service.selectRelevantDataActions(dataActions, providerData);
+    const selected = await selector.select(dataActions, providerData);
 
     // Fixtures select all DATA actions by default
     expect(selected.length).toBeGreaterThan(0);
-    expect(selected.every((a) => a !== null)).toBe(true);
+    expect(selected.every((a: any) => a !== null)).toBe(true);
   });
 
   it('should return empty array if no actions are relevant', async () => {
@@ -76,7 +75,7 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
     });
 
     const providerData: ProviderDataResult[] = [];
-    const selected = await service.selectRelevantDataActions(dataActions, providerData);
+    const selected = await selector.select(dataActions, providerData);
 
     expect(selected.length).toBe(0);
   });
@@ -93,7 +92,7 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
     });
 
     const providerData: ProviderDataResult[] = [];
-    const selected = await service.selectRelevantDataActions(dataActions, providerData);
+    const selected = await selector.select(dataActions, providerData);
 
     // Should return empty array on error (not throw)
     expect(selected.length).toBe(0);
@@ -113,7 +112,7 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
     });
 
     const providerData: ProviderDataResult[] = [];
-    await service.selectRelevantDataActions(dataActions, providerData);
+    await selector.select(dataActions, providerData);
 
     // Should have called LLM for all 3 action types
     expect(callOrder.length).toBe(3);
@@ -139,7 +138,7 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
       },
     ];
 
-    await service.selectRelevantDataActions(dataActions, providerData);
+    await selector.select(dataActions, providerData);
 
     // Prompt should include provider data
     expect(capturedPrompt).toContain('walletContext');
@@ -150,7 +149,7 @@ describe('SendoWorkerService - selectRelevantDataActions', () => {
     const emptyMap = new Map<string, Action[]>();
     const providerData: ProviderDataResult[] = [];
 
-    const selected = await service.selectRelevantDataActions(emptyMap, providerData);
+    const selected = await selector.select(emptyMap, providerData);
 
     expect(selected.length).toBe(0);
   });

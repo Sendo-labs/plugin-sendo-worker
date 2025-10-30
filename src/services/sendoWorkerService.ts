@@ -3,42 +3,39 @@ import {
   IAgentRuntime,
   type UUID,
   logger,
-  ModelType,
-  type Action,
-  type Memory,
-  ChannelType,
   createUniqueUuid,
 } from '@elizaos/core';
-import { eq, desc } from 'drizzle-orm';
 import type {
   AnalysisResult,
   RecommendedAction,
-  ActionClassification,
-  ActionCategorizationResponse,
   ActionActionType,
-  DataActionType,
-  AnalysisActionResult,
-  ProviderDataResult,
 } from '../types/index';
-import {
-  actionCategorizationSchema,
-  selectRelevantActionsSchema,
-  generateAnalysisSchema,
-  generateRecommendationSchema,
-} from '../types/index';
-import { analysisResults, recommendedActions, PRIORITY_VALUES, PRIORITY_NAMES } from '../schemas/index';
-import {
-  actionCategorizationPrompt,
-  generateDataActionTriggerPrompt,
-  selectRelevantDataActionsPrompt,
-  generateAnalysisPrompt,
-  selectRelevantActionsPrompt,
-  generateRecommendationPrompt,
-} from '../templates/index';
-import { getActionResultFromCache, extractErrorMessage } from '../utils/actionResult';
+import { WorldManager } from '../utils/worldManager';
+import { ensureSolanaWallet } from '../utils/walletManager.js';
+import { ProviderCollector, DataSelector, DataExecutor } from './data';
+import { ActionCategorizer, AnalysisGenerator } from './analysis';
+import { RecommendationGenerator, DecisionProcessor } from './recommendation';
+import { AnalysisRepository } from './persistence';
 
+/**
+ * SendoWorkerService
+ *
+ * Main orchestrator service for the Sendo Worker plugin.
+ * Manages the complete analysis workflow from data collection to action recommendations.
+ */
 export class SendoWorkerService extends Service {
   static serviceType = 'sendo_worker';
+
+  // Module instances
+  private worldManager!: WorldManager;
+  private providerCollector!: ProviderCollector;
+  private dataSelector!: DataSelector;
+  private dataExecutor!: DataExecutor;
+  private actionCategorizer!: ActionCategorizer;
+  private analysisGenerator!: AnalysisGenerator;
+  private recommendationGenerator!: RecommendationGenerator;
+  private decisionProcessor!: DecisionProcessor;
+  private repository!: AnalysisRepository;
 
   get capabilityDescription(): string {
     return 'Sendo Worker service that manages analysis results and recommended actions';
@@ -47,6 +44,34 @@ export class SendoWorkerService extends Service {
   async initialize(runtime: IAgentRuntime): Promise<void> {
     logger.info('[SendoWorkerService] Initializing...');
     this.runtime = runtime;
+
+    // Initialize all module instances
+    this.worldManager = new WorldManager(runtime);
+    this.providerCollector = new ProviderCollector(runtime);
+    this.dataSelector = new DataSelector(runtime);
+    this.dataExecutor = new DataExecutor(runtime, this.getAgentWorldId.bind(this));
+    this.actionCategorizer = new ActionCategorizer(runtime);
+    this.analysisGenerator = new AnalysisGenerator(runtime);
+    this.recommendationGenerator = new RecommendationGenerator(runtime);
+    this.decisionProcessor = new DecisionProcessor(
+      runtime,
+      this.getDb.bind(this),
+      this.getAgentWorldId.bind(this),
+      this.getActionById.bind(this)
+    );
+    this.repository = new AnalysisRepository(this.getDb.bind(this));
+
+    // Ensure agent's permanent world exists
+    await this.worldManager.ensureAgentWorldExists();
+
+    // Ensure Solana wallet exists (required for analysis)
+    const solanaService = runtime.getService('chain_solana');
+    if (solanaService) {
+      await ensureSolanaWallet(runtime);
+    } else {
+      logger.warn('[SendoWorkerService] Skipping wallet creation: Solana service not available');
+    }
+
     logger.info('[SendoWorkerService] Initialized successfully');
   }
 
@@ -71,475 +96,19 @@ export class SendoWorkerService extends Service {
     return db;
   }
 
-  // ============================================
-  // DYNAMIC ANALYSIS METHODS
-  // ============================================
-
   /**
-   * Categorize all available actions into DATA and ACTION categories
-   * Each action is processed in parallel with LLM
-   * @returns Object with categorized actions grouped by type
+   * Get the permanent worldId for this agent
    */
-  async categorizeActions(): Promise<{
-    dataActions: Map<string, Action[]>;
-    actionActions: Map<ActionActionType, Action[]>;
-    classifications: ActionClassification[];
-  }> {
-    logger.info('[SendoWorkerService] Categorizing all available actions...');
-
-    // Get all actions from runtime
-    const allActions = Array.from(this.runtime.actions.values());
-    logger.info(`[SendoWorkerService] Found ${allActions.length} actions to categorize`);
-
-    // Process each action in parallel
-    const classifications = await Promise.all(
-      allActions.map((action) => this.categorizeAction(action))
-    );
-
-    // Group actions by category and type
-    const dataActions = new Map<string, Action[]>();
-    const actionActions = new Map<ActionActionType, Action[]>();
-
-    for (const classification of classifications) {
-      if (classification.category === 'DATA') {
-        const typeActions = dataActions.get(classification.actionType) || [];
-        typeActions.push(classification.action);
-        dataActions.set(classification.actionType, typeActions);
-      } else if (classification.category === 'ACTION') {
-        const actionType = classification.actionType as ActionActionType;
-        const typeActions = actionActions.get(actionType) || [];
-        typeActions.push(classification.action);
-        actionActions.set(actionType, typeActions);
-      }
-    }
-
-    logger.info(
-      `[SendoWorkerService] Categorization complete: ${dataActions.size} DATA types, ${actionActions.size} ACTION types`
-    );
-
-    return { dataActions, actionActions, classifications };
-  }
-
-  /**
-   * Categorize a single action using LLM
-   * @param action - The action to categorize
-   * @returns Classification result
-   */
-  private async categorizeAction(action: Action): Promise<ActionClassification> {
-    const response = (await this.runtime.useModel(ModelType.OBJECT_SMALL, {
-      prompt: actionCategorizationPrompt({ action }),
-      schema: actionCategorizationSchema,
-      temperature: 0.1,
-    })) as ActionCategorizationResponse;
-
-    // Extract plugin name from action
-    const pluginName = this.extractPluginName(action);
-
-    return {
-      action,
-      category: response.category,
-      actionType: response.actionType as DataActionType | ActionActionType,
-      confidence: response.confidence,
-      reasoning: response.reasoning,
-      pluginName,
-    };
-  }
-
-  /**
-   * Extract plugin name from action
-   * @param action - The action
-   * @returns Plugin name or 'unknown'
-   */
-  private extractPluginName(action: Action): string {
-    // Try to extract from action metadata
-    if ((action as any).plugin) {
-      return (action as any).plugin;
-    }
-
-    // Fallback: try to extract from action name if it has a prefix
-    const nameParts = action.name.split(':');
-    if (nameParts.length > 1) {
-      return nameParts[0];
-    }
-
-    return 'unknown';
-  }
-
-  /**
-   * Collect data from all available providers via composeState
-   * @returns Array of provider data results
-   */
-  async collectProviderData(): Promise<ProviderDataResult[]> {
-    logger.info('[SendoWorkerService] Collecting data from providers...');
-
-    // Create a minimal memory for state composition
-    const memory: Memory = {
-      id: crypto.randomUUID() as UUID,
-      entityId: this.runtime.agentId,
-      agentId: this.runtime.agentId,
-      roomId: crypto.randomUUID() as UUID,
-      content: { text: 'Collecting provider data for analysis' },
-      createdAt: Date.now(),
-    };
-
-    // Compose state - this automatically calls all non-private, non-dynamic providers
-    const state = await this.runtime.composeState(memory);
-
-    // Extract provider data from state.data.providers
-    const providers = state.data?.providers || {};
-    const timestamp = new Date().toISOString();
-
-    const results: ProviderDataResult[] = Object.entries(providers).map(
-      ([name, providerResult]) => ({
-        providerName: name,
-        data: providerResult,
-        timestamp,
-      })
-    );
-
-    logger.info(`[SendoWorkerService] Collected data from ${results.length} providers`);
-    return results;
-  }
-
-  /**
-   * Select relevant DATA actions based on provider data
-   * Groups actions by type and selects relevant ones for each type in parallel
-   * @param dataActions - Map of DATA actions grouped by type
-   * @param providerData - Provider data results
-   * @returns Array of relevant DATA actions
-   */
-  async selectRelevantDataActions(
-    dataActions: Map<string, Action[]>,
-    providerData: ProviderDataResult[]
-  ): Promise<Action[]> {
-    logger.info('[SendoWorkerService] Selecting relevant DATA actions...');
-
-    // Process each data action type in parallel
-    const selections = await Promise.all(
-      Array.from(dataActions.entries()).map(async ([type, actions]) => {
-        try {
-          const response = await this.runtime.useModel(ModelType.OBJECT_SMALL, {
-            prompt: selectRelevantDataActionsPrompt({
-              providerData,
-              dataActions: actions,
-            }),
-            schema: selectRelevantActionsSchema,
-            temperature: 0.3,
-          });
-
-          // Filter selected actions
-          const selectedActions = actions.filter((action) =>
-            response.relevantActions.includes(action.name)
-          );
-
-          logger.debug(
-            `[SendoWorkerService] Selected ${selectedActions.length}/${actions.length} ${type} actions`
-          );
-
-          return selectedActions;
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error(
-            `[SendoWorkerService] Failed to select ${type} actions: ${errorMessage}`
-          );
-          return [];
-        }
-      })
-    );
-
-    // Flatten all selected actions
-    const relevantActions = selections.flat();
-
-    logger.info(
-      `[SendoWorkerService] Selected ${relevantActions.length} relevant DATA actions`
-    );
-    return relevantActions;
-  }
-
-  /**
-   * Execute DATA actions with generated trigger messages
-   * @param dataActions - Array of DATA actions to execute
-   * @returns Array of action execution results
-   */
-  async executeAnalysisActions(dataActions: Action[], analysisSessionId?: string): Promise<AnalysisActionResult[]> {
-    logger.info('[SendoWorkerService] Executing DATA actions...');
-
-    if (dataActions.length === 0) {
-      logger.warn('[SendoWorkerService] No DATA actions to execute');
-      return [];
-    }
-
-    // Create a worldId unique per analysis session
-    // Each analysis session gets its own world to avoid conflicts between different users/sessions
-    const sessionId = analysisSessionId || crypto.randomUUID();
-    const worldId = createUniqueUuid(
+  private getAgentWorldId(): UUID {
+    return createUniqueUuid(
       this.runtime,
-      `sendo-analysis-${sessionId}`
-    );
-
-    // Execute each action in parallel
-    const results = await Promise.all(
-      dataActions.map(async (action) => {
-        try {
-          // Generate trigger message for this action
-          const triggerMessage = (await this.runtime.useModel(ModelType.TEXT_SMALL, {
-            prompt: generateDataActionTriggerPrompt({ action }),
-            temperature: 0.2,
-          })) as string;
-
-          logger.debug(`[SendoWorkerService] Trigger for ${action.name}: "${triggerMessage.trim()}"`);
-
-          // Create message with unique ID for stateCache retrieval
-          const messageId = crypto.randomUUID() as UUID;
-
-          // Ensure room exists in database (unique room per action, shared worldId)
-          const roomId = crypto.randomUUID() as UUID;
-          await this.runtime.ensureRoomExists({
-            id: roomId,
-            source: 'sendo-worker',
-            type: ChannelType.API,
-            worldId,
-          });
-
-          const memory: Memory = {
-            id: messageId,
-            entityId: this.runtime.agentId,
-            agentId: this.runtime.agentId,
-            roomId,
-            content: {
-              text: triggerMessage.trim(),
-            },
-            createdAt: Date.now(),
-          };
-
-          // Create responses array with the action to execute
-          const responses: Memory[] = [
-            {
-              id: crypto.randomUUID() as UUID,
-              entityId: this.runtime.agentId,
-              agentId: this.runtime.agentId,
-              roomId: memory.roomId,
-              content: {
-                text: triggerMessage.trim(),
-                actions: [action.name],
-              },
-              createdAt: Date.now(),
-            },
-          ];
-
-          // Process the action - this awaits until action completes
-          await this.runtime.processActions(memory, responses);
-
-          // Retrieve results from stateCache using helper
-          const actionResult = getActionResultFromCache(this.runtime, messageId);
-
-          if (actionResult) {
-            logger.debug(
-              `[SendoWorkerService] Action ${action.name} completed: success=${actionResult.success}`
-            );
-
-            return {
-              actionType: action.name,
-              success: actionResult.success ?? false,
-              data: actionResult.data || actionResult.values || null,
-              error: extractErrorMessage(actionResult),
-            };
-          } else {
-            logger.warn(`[SendoWorkerService] No result found in stateCache for ${action.name}`);
-            return {
-              actionType: action.name,
-              success: false,
-              data: null,
-              error: 'No result returned from action',
-            };
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error(`[SendoWorkerService] Failed to execute ${action.name}: ${errorMessage}`);
-          return {
-            actionType: action.name,
-            success: false,
-            data: null,
-            error: errorMessage,
-          };
-        }
-      })
-    );
-
-    const successCount = results.filter((r) => r.success).length;
-    logger.info(
-      `[SendoWorkerService] Executed ${results.length} DATA actions, ${successCount} successful`
-    );
-
-    return results;
+      `sendo-agent-${this.runtime.agentId}`
+    ) as UUID;
   }
 
-  /**
-   * Generate comprehensive analysis using LLM
-   * @param analysisResults - Results from executed DATA actions
-   * @param providerData - Data collected from providers
-   * @returns Analysis with four sections
-   */
-  async generateAnalysis(
-    analysisResults: AnalysisActionResult[],
-    providerData: ProviderDataResult[]
-  ): Promise<{
-    walletOverview: string;
-    marketConditions: string;
-    riskAssessment: string;
-    opportunities: string;
-  }> {
-    logger.info('[SendoWorkerService] Generating analysis with LLM...');
-
-    // Extract plugin names from successful results
-    const pluginsUsed = [
-      ...new Set([
-        ...analysisResults.filter((r) => r.success).map((r) => r.actionType.split(':')[0] || 'unknown'),
-        ...providerData.map((p) => p.providerName),
-      ]),
-    ];
-
-    const analysis = await this.runtime.useModel(ModelType.OBJECT_LARGE, {
-      prompt: generateAnalysisPrompt({
-        analysisResults,
-        providerData,
-        pluginsUsed,
-      }),
-      schema: generateAnalysisSchema,
-      temperature: 0.7,
-    });
-
-    logger.info('[SendoWorkerService] Analysis generated successfully');
-    return analysis;
-  }
-
-  /**
-   * Generate recommendations based on analysis and available ACTION actions
-   * Uses double parallel processing: by action type, then by individual action
-   * @param analysisId - ID of the analysis these recommendations belong to
-   * @param analysis - Generated analysis
-   * @param actionActions - Map of ACTION category actions grouped by type
-   * @returns Array of recommended actions ready to save
-   */
-  async generateRecommendations(
-    analysisId: UUID,
-    analysis: {
-      walletOverview: string;
-      marketConditions: string;
-      riskAssessment: string;
-      opportunities: string;
-    },
-    actionActions: Map<ActionActionType, Action[]>
-  ): Promise<RecommendedAction[]> {
-    logger.info('[SendoWorkerService] Generating recommendations...');
-
-    // Process each action type in parallel
-    const allRecommendations = await Promise.all(
-      Array.from(actionActions.entries()).map(async ([actionType, actions]) => {
-        try {
-          // 1. Select relevant actions for this type
-          const selection = await this.runtime.useModel(ModelType.OBJECT_SMALL, {
-            prompt: selectRelevantActionsPrompt({
-              analysis,
-              actionType,
-              actions,
-            }),
-            schema: selectRelevantActionsSchema,
-            temperature: 0.3,
-          });
-
-          // 2. Filter selected actions
-          const selectedActions = actions.filter((action) =>
-            selection.relevantActions.includes(action.name)
-          );
-
-          logger.debug(
-            `[SendoWorkerService] Selected ${selectedActions.length}/${actions.length} ${actionType} actions`
-          );
-
-          if (selectedActions.length === 0) {
-            return [];
-          }
-
-          // 3. Generate recommendations for each selected action in parallel
-          const recommendations = await Promise.all(
-            selectedActions.map(async (action) => {
-              try {
-                const pluginName = this.extractPluginName(action);
-
-                const recommendation = await this.runtime.useModel(ModelType.OBJECT_SMALL, {
-                  prompt: generateRecommendationPrompt({
-                    analysis,
-                    action,
-                    pluginName,
-                  }),
-                  schema: generateRecommendationSchema,
-                  temperature: 0.2,
-                });
-
-                // Transform params from key-value array to object for frontend
-                let parsedParams: Record<string, any> | undefined;
-                if (
-                  recommendation.params &&
-                  Array.isArray(recommendation.params) &&
-                  recommendation.params.length > 0
-                ) {
-                  parsedParams = recommendation.params.reduce(
-                    (acc: Record<string, any>, { key, value }: { key: string; value: any }) => {
-                      acc[key] = value;
-                      return acc;
-                    },
-                    {} as Record<string, any>
-                  );
-                }
-
-                // Build complete RecommendedAction
-                return {
-                  id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-                  analysisId,
-                  actionType: recommendation.actionType,
-                  pluginName: recommendation.pluginName,
-                  priority: recommendation.priority as 'high' | 'medium' | 'low',
-                  reasoning: recommendation.reasoning,
-                  confidence: recommendation.confidence,
-                  triggerMessage: recommendation.triggerMessage,
-                  params: parsedParams,
-                  estimatedImpact: recommendation.estimatedImpact,
-                  status: 'pending' as const,
-                  createdAt: new Date().toISOString(),
-                } as RecommendedAction;
-              } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                logger.error(
-                  `[SendoWorkerService] Failed to generate recommendation for ${action.name}: ${errorMessage}`
-                );
-                // Log full error for debugging
-                if (error instanceof Error && error.stack) {
-                  logger.error(`[SendoWorkerService] Stack trace: ${error.stack}`);
-                }
-                logger.error(`[SendoWorkerService] Full error object: ${JSON.stringify(error, null, 2)}`);
-                return null;
-              }
-            })
-          );
-
-          return recommendations.filter((r): r is RecommendedAction => r !== null);
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error(
-            `[SendoWorkerService] Failed to process ${actionType} actions: ${errorMessage}`
-          );
-          return [];
-        }
-      })
-    );
-
-    // Flatten all recommendations
-    const finalRecommendations = allRecommendations.flat();
-
-    logger.info(`[SendoWorkerService] Generated ${finalRecommendations.length} recommendations`);
-    return finalRecommendations;
-  }
+  // ============================================
+  // MAIN WORKFLOW METHOD
+  // ============================================
 
   /**
    * Main orchestrator method that runs the complete analysis workflow
@@ -554,57 +123,45 @@ export class SendoWorkerService extends Service {
 
     try {
       // 1. Categorize all available actions
-      logger.info('[SendoWorkerService] Step 1/6: Categorizing actions...');
-      const { dataActions, actionActions, classifications } = await this.categorizeActions();
-      logger.info(
-        `[SendoWorkerService] Categorized ${classifications.length} actions: ${dataActions.size} DATA types, ${actionActions.size} ACTION types`
-      );
+      logger.info('[SendoWorkerService] Step 1: Categorizing actions...');
+      const { dataActions, actionActions } = await this.actionCategorizer.categorize();
 
       // 2. Collect provider data
-      logger.info('[SendoWorkerService] Step 2/6: Collecting provider data...');
-      const providerData = await this.collectProviderData();
-      logger.info(`[SendoWorkerService] Collected data from ${providerData.length} providers`);
+      logger.info('[SendoWorkerService] Step 2: Collecting provider data...');
+      const providerData = await this.providerCollector.collect();
 
       // 3. Select relevant DATA actions
-      logger.info('[SendoWorkerService] Step 3/6: Selecting relevant DATA actions...');
-      const relevantDataActions = await this.selectRelevantDataActions(dataActions, providerData);
-      logger.info(`[SendoWorkerService] Selected ${relevantDataActions.length} relevant DATA actions`);
+      logger.info('[SendoWorkerService] Step 3: Selecting DATA actions...');
+      const selectedDataActions = await this.dataSelector.select(dataActions, providerData);
 
       // 4. Execute DATA actions
-      logger.info('[SendoWorkerService] Step 4/6: Executing DATA actions...');
-      const analysisResults = await this.executeAnalysisActions(relevantDataActions);
-      const successfulResults = analysisResults.filter((r) => r.success);
-      logger.info(
-        `[SendoWorkerService] Executed ${analysisResults.length} actions, ${successfulResults.length} successful`
+      logger.info('[SendoWorkerService] Step 4: Executing DATA actions...');
+      const { results: dataResults, roomIds: createdRoomIds } = await this.dataExecutor.execute(
+        selectedDataActions
       );
 
-      // 5. Generate analysis
-      logger.info('[SendoWorkerService] Step 5/6: Generating analysis...');
-      const analysis = await this.generateAnalysis(analysisResults, providerData);
-      logger.info('[SendoWorkerService] Analysis generated successfully');
+      // 5. Generate analysis from DATA results
+      logger.info('[SendoWorkerService] Step 5: Generating analysis...');
+      const analysis = await this.analysisGenerator.generate(dataResults, providerData);
 
-      // 6. Generate recommendations
-      logger.info('[SendoWorkerService] Step 6/6: Generating recommendations...');
-
-      // Create analysis ID for recommendations
+      // 6. Generate recommendations from ACTION actions
+      logger.info('[SendoWorkerService] Step 6: Generating recommendations...');
       const analysisId = crypto.randomUUID() as UUID;
-      const recommendations = await this.generateRecommendations(
+      const recommendations = await this.recommendationGenerator.generate(
         analysisId,
         analysis,
         actionActions
       );
-      logger.info(`[SendoWorkerService] Generated ${recommendations.length} recommendations`);
 
-      // Build final result
+      // 7. Build result object
       const pluginsUsed = [
         ...new Set([
-          ...analysisResults.filter((r) => r.success).map((r) => r.actionType.split(':')[0] || 'unknown'),
+          ...dataResults.filter((r) => r.success).map((r) => r.actionType.split(':')[0] || 'unknown'),
           ...providerData.map((p) => p.providerName),
         ]),
       ];
 
       const executionTimeMs = Date.now() - startTime;
-
       const result: AnalysisResult = {
         id: analysisId,
         agentId,
@@ -615,14 +172,22 @@ export class SendoWorkerService extends Service {
         createdAt: new Date().toISOString(),
       };
 
-      // 7. Save to database
+      // 8. Save to database
       logger.info('[SendoWorkerService] Saving analysis to database...');
-      await this.saveAnalysis(result, recommendations);
+      await this.repository.saveAnalysis(result, recommendations);
       logger.info('[SendoWorkerService] Analysis saved successfully');
 
       logger.info(
         `[SendoWorkerService] ✅ Analysis completed in ${executionTimeMs}ms with ${recommendations.length} recommendations`
       );
+
+      // 9. Cleanup temporary rooms
+      try {
+        await this.worldManager.cleanupAnalysisRooms(createdRoomIds);
+      } catch (cleanupError: any) {
+        // Non-critical error, just log it
+        logger.warn('[SendoWorkerService] Failed to cleanup rooms:', cleanupError.message);
+      }
 
       return {
         ...result,
@@ -635,65 +200,12 @@ export class SendoWorkerService extends Service {
     }
   }
 
-  /**
-   * Save analysis and recommendations to database
-   * @param analysis - The analysis result
-   * @param recommendations - Array of recommended actions
-   */
-  private async saveAnalysis(
-    analysis: AnalysisResult,
-    recommendations: RecommendedAction[]
-  ): Promise<void> {
-    const db = this.getDb();
-
-    // 1. Insert analysis result
-    await db.insert(analysisResults).values({
-      id: analysis.id,
-      agentId: analysis.agentId,
-      analysis: analysis.analysis,
-      pluginsUsed: analysis.pluginsUsed,
-      executionTimeMs: analysis.executionTimeMs,
-      createdAt: new Date(analysis.createdAt),
-    });
-
-    // 2. Insert recommended actions
-    if (recommendations.length > 0) {
-      // Filter out any null/undefined recommendations
-      const validRecs = recommendations.filter((rec) => rec != null && rec.confidence != null);
-
-      if (validRecs.length > 0) {
-        await db.insert(recommendedActions).values(
-          validRecs.map((rec) => ({
-            id: rec.id,
-            analysisId: analysis.id,
-            actionType: rec.actionType,
-            pluginName: rec.pluginName,
-            priority: PRIORITY_VALUES[rec.priority],
-            reasoning: rec.reasoning,
-            confidence: rec.confidence.toString(),
-            triggerMessage: rec.triggerMessage,
-            params: rec.params ?? null,
-            estimatedImpact: rec.estimatedImpact ?? null,
-            status: rec.status,
-            createdAt: new Date(rec.createdAt),
-          }))
-        );
-      }
-    }
-
-    logger.info(
-      `[SendoWorkerService] Saved analysis ${analysis.id} with ${recommendations.length} recommendations`
-    );
-  }
-
   // ============================================
   // DECISION & EXECUTION METHODS
   // ============================================
 
   /**
    * Process decision for one or more actions (accept/reject)
-   * - Accept: Executes the action immediately (async)
-   * - Reject: Updates status to "rejected" without execution
    * @param decisions - Array of { actionId, decision: 'accept' | 'reject' }
    * @returns Object with accepted and rejected actions
    */
@@ -703,259 +215,11 @@ export class SendoWorkerService extends Service {
     accepted: RecommendedAction[];
     rejected: Array<{ actionId: string; status: string }>;
   }> {
-    logger.info(`[SendoWorkerService] Processing ${decisions.length} decisions...`);
-
-    const accepted: RecommendedAction[] = [];
-    const rejected: Array<{ actionId: string; status: string }> = [];
-    const db = this.getDb();
-
-    for (const { actionId, decision } of decisions) {
-      try {
-        if (decision === 'accept') {
-          // Accept → Execute the action
-          const executingActions = await this.executeActions([actionId]);
-          if (executingActions.length > 0) {
-            accepted.push(executingActions[0]);
-            logger.info(`[SendoWorkerService] Action ${actionId} accepted and executing`);
-          }
-        } else if (decision === 'reject') {
-          // Reject → Just update status
-          await db
-            .update(recommendedActions)
-            .set({
-              status: 'rejected',
-              decidedAt: new Date(),
-            })
-            .where(eq(recommendedActions.id, actionId));
-
-          rejected.push({ actionId, status: 'rejected' });
-          logger.info(`[SendoWorkerService] Action ${actionId} rejected`);
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`[SendoWorkerService] Failed to process decision for ${actionId}: ${errorMessage}`);
-        // Continue processing other decisions
-      }
-    }
-
-    logger.info(
-      `[SendoWorkerService] Decisions processed: ${accepted.length} accepted, ${rejected.length} rejected`
-    );
-
-    return { accepted, rejected };
-  }
-
-  /**
-   * Execute one or more recommended actions asynchronously
-   * Changes status to "executing" immediately and processes actions in background
-   * Called internally by processDecisions() when decision is "accept"
-   * @param actionIds - Array of action IDs to execute
-   * @returns Array of actions with status updated to "executing"
-   */
-  private async executeActions(actionIds: string[]): Promise<RecommendedAction[]> {
-    logger.info(`[SendoWorkerService] Starting execution of ${actionIds.length} actions...`);
-
-    if (actionIds.length === 0) {
-      logger.warn('[SendoWorkerService] No actions to execute');
-      return [];
-    }
-
-    const db = this.getDb();
-    const executingActions: RecommendedAction[] = [];
-
-    // 1. Update all actions to "executing" status immediately
-    for (const actionId of actionIds) {
-      try {
-        const action = await this.getActionById(actionId);
-
-        await db
-          .update(recommendedActions)
-          .set({
-            status: 'executing',
-            decidedAt: new Date(),
-          })
-          .where(eq(recommendedActions.id, actionId));
-
-        executingActions.push({
-          ...action,
-          status: 'executing',
-          decidedAt: new Date().toISOString(),
-        });
-
-        logger.debug(`[SendoWorkerService] Action ${actionId} status → executing`);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`[SendoWorkerService] Failed to update ${actionId}: ${errorMessage}`);
-      }
-    }
-
-    // 2. Launch execution asynchronously (don't await)
-    this.processExecutingActions(actionIds).catch((error) => {
-      logger.error('[SendoWorkerService] Action execution error:', error);
-    });
-
-    logger.info(`[SendoWorkerService] ${executingActions.length} actions marked as executing`);
-    return executingActions;
-  }
-
-  /**
-   * Process executing actions and update database with results
-   * Called by executeActions() - runs asynchronously
-   * @param actionIds - Array of action IDs to process
-   */
-  private async processExecutingActions(actionIds: string[]): Promise<void> {
-    logger.info(`[SendoWorkerService] Processing ${actionIds.length} executing actions...`);
-
-    // Process each action in parallel
-    await Promise.all(
-      actionIds.map(async (actionId) => {
-        try {
-          // 1. Get action from database
-          const recommendedAction = await this.getActionById(actionId);
-
-          logger.debug(
-            `[SendoWorkerService] Processing action ${actionId}: ${recommendedAction.actionType}`
-          );
-
-          // 2. Find the actual Action from runtime
-          const action = Array.from(this.runtime.actions.values()).find(
-            (a) => a.name === recommendedAction.actionType
-          );
-
-          if (!action) {
-            throw new Error(`Action ${recommendedAction.actionType} not found in runtime`);
-          }
-
-          // 3. Create memory with unique ID to trigger the action
-          const messageId = crypto.randomUUID() as UUID;
-          const roomId = crypto.randomUUID() as UUID;
-
-          // Create a worldId unique per analysis (each analysis represents a user session)
-          const actionWorldId = createUniqueUuid(
-            this.runtime,
-            `sendo-analysis-${recommendedAction.analysisId}`
-          );
-
-          // Ensure room exists in database (required for memory storage)
-          await this.runtime.ensureRoomExists({
-            id: roomId,
-            source: 'sendo-worker',
-            type: ChannelType.API,
-            worldId: actionWorldId,
-          });
-
-          const memory: Memory = {
-            id: messageId,
-            entityId: this.runtime.agentId,
-            agentId: this.runtime.agentId,
-            roomId,
-            content: {
-              text: recommendedAction.triggerMessage,
-            },
-            createdAt: Date.now(),
-          };
-
-          // Create responses array with the action to execute
-          const responses: Memory[] = [
-            {
-              id: crypto.randomUUID() as UUID,
-              entityId: this.runtime.agentId,
-              agentId: this.runtime.agentId,
-              roomId: memory.roomId,
-              content: {
-                text: recommendedAction.triggerMessage,
-                actions: [action.name],
-              },
-              createdAt: Date.now(),
-            },
-          ];
-
-          // 4. Process the action - this awaits until action completes
-          await this.runtime.processActions(memory, responses);
-
-          // 5. Retrieve results from stateCache using helper
-          const actionResult = getActionResultFromCache(this.runtime, messageId);
-
-          const executedAt = new Date();
-          const db = this.getDb();
-
-          // 6. Update database with result
-          if (actionResult) {
-            if (actionResult.success) {
-              // Success - extract result from ActionResult
-              const resultData = {
-                text: actionResult.text || JSON.stringify(actionResult.data || actionResult.values),
-                data: actionResult.data || actionResult.values || undefined,
-                timestamp: executedAt.toISOString(),
-              };
-
-              await db
-                .update(recommendedActions)
-                .set({
-                  status: 'completed',
-                  result: resultData,
-                  error: null,
-                  executedAt,
-                })
-                .where(eq(recommendedActions.id, actionId));
-
-              logger.info(`[SendoWorkerService] ✅ Action ${actionId} completed successfully`);
-            } else {
-              // Action executed but failed (e.g., insufficient funds, swap failed)
-              const errorMessage = extractErrorMessage(actionResult, 'Action execution failed');
-              await db
-                .update(recommendedActions)
-                .set({
-                  status: 'failed',
-                  error: errorMessage,
-                  errorType: 'execution',
-                  executedAt,
-                })
-                .where(eq(recommendedActions.id, actionId));
-
-              logger.warn(`[SendoWorkerService] ⚠️ Action ${actionId} failed: ${errorMessage}`);
-            }
-          } else {
-            // No result - mark as failed (action was executed but returned nothing)
-            await db
-              .update(recommendedActions)
-              .set({
-                status: 'failed',
-                error: 'No result returned from action',
-                errorType: 'execution',
-                executedAt,
-              })
-              .where(eq(recommendedActions.id, actionId));
-
-            logger.warn(`[SendoWorkerService] ⚠️ Action ${actionId} failed: no result`);
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-
-          logger.error(`[SendoWorkerService] ❌ Action ${actionId} failed: ${errorMessage}`);
-
-          // Update database with error and errorType
-          // Exceptions here are initialization errors (action not found, room creation failed, etc.)
-          // These are infrastructure/setup problems, not execution failures
-          const db = this.getDb();
-          await db
-            .update(recommendedActions)
-            .set({
-              status: 'failed',
-              error: errorMessage,
-              errorType: 'initialization',
-              executedAt: new Date(),
-            })
-            .where(eq(recommendedActions.id, actionId));
-        }
-      })
-    );
-
-    logger.info('[SendoWorkerService] Action processing completed');
+    return this.decisionProcessor.processDecisions(decisions);
   }
 
   // ============================================
-  // READ METHODS
+  // READ METHODS (Delegated to Repository)
   // ============================================
 
   /**
@@ -966,82 +230,17 @@ export class SendoWorkerService extends Service {
   async getAnalysisResult(
     analysisId: UUID
   ): Promise<(AnalysisResult & { recommendedActions: RecommendedAction[] }) | null> {
-    logger.info(`[SendoWorkerService] Getting analysis ${analysisId}`);
-
-    const db = this.getDb();
-    const results = await db
-      .select()
-      .from(analysisResults)
-      .where(eq(analysisResults.id, analysisId))
-      .limit(1);
-
-    if (results.length === 0) {
-      return null;
-    }
-
-    const row = results[0];
-
-    // Also fetch the recommended actions for this analysis
-    const actions = await db
-      .select()
-      .from(recommendedActions)
-      .where(eq(recommendedActions.analysisId, analysisId));
-
-    const recommendedActionsList: RecommendedAction[] = actions.map((action: any) => ({
-      id: action.id as UUID,
-      analysisId: action.analysisId as UUID,
-      actionType: action.actionType,
-      pluginName: action.pluginName,
-      priority: PRIORITY_NAMES[action.priority as keyof typeof PRIORITY_NAMES] || 'medium',
-      reasoning: action.reasoning,
-      confidence: parseFloat(action.confidence),
-      triggerMessage: action.triggerMessage,
-      params: action.params as Record<string, any>,
-      estimatedImpact: action.estimatedImpact,
-      status: action.status as 'pending' | 'rejected' | 'executing' | 'completed' | 'failed',
-      executedAt: action.executedAt?.toISOString() ?? undefined,
-      error: action.error ?? undefined,
-      errorType: action.errorType ?? undefined,
-      createdAt: action.createdAt?.toISOString() ?? new Date().toISOString(),
-    }));
-
-    return {
-      id: row.id as UUID,
-      agentId: row.agentId as UUID,
-      timestamp: row.createdAt?.toISOString() ?? new Date().toISOString(),
-      analysis: row.analysis as any,
-      pluginsUsed: row.pluginsUsed ?? [],
-      executionTimeMs: row.executionTimeMs ?? 0,
-      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-      recommendedActions: recommendedActionsList,
-    };
+    return this.repository.getAnalysisResult(analysisId);
   }
 
   /**
    * Get all analyses for an agent (limited to 10 most recent)
    * @param agentId - The agent UUID
+   * @param limit - Maximum number of results (default: 10)
    * @returns Array of analysis results
    */
   async getAnalysesByAgentId(agentId: UUID, limit: number = 10): Promise<AnalysisResult[]> {
-    logger.info(`[SendoWorkerService] Getting analyses for agent ${agentId}`);
-
-    const db = this.getDb();
-    const results = await db
-      .select()
-      .from(analysisResults)
-      .where(eq(analysisResults.agentId, agentId))
-      .orderBy(desc(analysisResults.createdAt))
-      .limit(limit);
-
-    return results.map((row: any) => ({
-      id: row.id as UUID,
-      agentId: row.agentId as UUID,
-      timestamp: row.createdAt?.toISOString() ?? new Date().toISOString(),
-      analysis: row.analysis as any,
-      pluginsUsed: row.pluginsUsed ?? [],
-      executionTimeMs: row.executionTimeMs ?? 0,
-      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-    }));
+    return this.repository.getAnalysesByAgentId(agentId, limit);
   }
 
   /**
@@ -1050,34 +249,7 @@ export class SendoWorkerService extends Service {
    * @returns Array of recommended actions
    */
   async getActionsByAnalysisId(analysisId: UUID): Promise<RecommendedAction[]> {
-    logger.info(`[SendoWorkerService] Getting actions for analysis ${analysisId}`);
-
-    const db = this.getDb();
-    const results = await db
-      .select()
-      .from(recommendedActions)
-      .where(eq(recommendedActions.analysisId, analysisId))
-      .orderBy(desc(recommendedActions.priority), desc(recommendedActions.confidence));
-
-    return results.map((row: any) => ({
-      id: row.id,
-      analysisId: row.analysisId as UUID,
-      actionType: row.actionType,
-      pluginName: row.pluginName,
-      priority: PRIORITY_NAMES[row.priority as keyof typeof PRIORITY_NAMES] || 'medium',
-      reasoning: row.reasoning,
-      confidence: parseFloat(row.confidence ?? '0'),
-      triggerMessage: row.triggerMessage,
-      params: row.params as any,
-      estimatedImpact: row.estimatedImpact ?? undefined,
-      status: row.status as any,
-      decidedAt: row.decidedAt?.toISOString(),
-      executedAt: row.executedAt?.toISOString(),
-      result: row.result as any,
-      error: row.error ?? undefined,
-      errorType: row.errorType ?? undefined,
-      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-    }));
+    return this.repository.getActionsByAnalysisId(analysisId);
   }
 
   /**
@@ -1087,41 +259,8 @@ export class SendoWorkerService extends Service {
    * @throws {Error} If action not found
    */
   async getActionById(actionId: string): Promise<RecommendedAction> {
-    logger.info(`[SendoWorkerService] Getting action ${actionId}`);
-
-    const db = this.getDb();
-    const results = await db
-      .select()
-      .from(recommendedActions)
-      .where(eq(recommendedActions.id, actionId))
-      .limit(1);
-
-    if (results.length === 0) {
-      throw new Error('Action not found');
-    }
-
-    const row = results[0];
-    return {
-      id: row.id,
-      analysisId: row.analysisId as UUID,
-      actionType: row.actionType,
-      pluginName: row.pluginName,
-      priority: PRIORITY_NAMES[row.priority as keyof typeof PRIORITY_NAMES] || 'medium',
-      reasoning: row.reasoning,
-      confidence: parseFloat(row.confidence ?? '0'),
-      triggerMessage: row.triggerMessage,
-      params: row.params as any,
-      estimatedImpact: row.estimatedImpact ?? undefined,
-      status: row.status as any,
-      decidedAt: row.decidedAt?.toISOString(),
-      executedAt: row.executedAt?.toISOString(),
-      result: row.result as any,
-      error: row.error ?? undefined,
-      errorType: row.errorType ?? undefined,
-      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-    };
+    return this.repository.getActionById(actionId);
   }
-
 }
 
 export default SendoWorkerService;
